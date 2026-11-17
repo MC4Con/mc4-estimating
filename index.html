@@ -1,0 +1,1581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MC4 Estimating</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{
+  --navy:#0f1f33; --navy2:#17304d; --accent:#f2a516; --accent-d:#c98400;
+  --bg:#f4f6f9; --card:#fff; --line:#e1e6ee; --line2:#eef1f5; --text:#1b2533; --muted:#6a7789;
+  --good:#1f8a4c; --bad:#c23b2a; --blue:#2463b8; --row-hover:#f8fafc; --edit:#fffbea;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:Inter,system-ui,sans-serif;font-size:13.5px;color:var(--text);background:var(--bg)}
+.mono,.num{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+input,select,textarea{font:inherit;color:inherit}
+a{color:var(--blue)}
+
+#login{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,var(--navy),var(--navy2))}
+.login-card{background:#fff;border-radius:12px;padding:32px;width:340px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.login-card h1{margin:0 0 4px;font-size:20px}
+.login-card p{margin:0 0 20px;color:var(--muted)}
+.login-card label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:12px 0 4px}
+.login-card input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px}
+.login-card .btn{width:100%;margin-top:20px;padding:11px}
+#loginErr{color:var(--bad);margin-top:10px;min-height:18px;font-size:12.5px}
+
+header{background:var(--navy);color:#fff;display:flex;align-items:center;gap:24px;padding:0 20px;height:56px;position:sticky;top:0;z-index:20}
+.brand{font-weight:700;font-size:16px;letter-spacing:.2px;white-space:nowrap}
+.brand span{color:var(--accent)}
+nav{display:flex;gap:2px;flex:1;overflow-x:auto;align-items:center}
+nav button{background:none;border:0;color:#b9c6d8;padding:8px 12px;border-radius:6px;font-weight:500;white-space:nowrap}
+nav button:hover{color:#fff;background:rgba(255,255,255,.07)}
+nav button.on{color:var(--navy);background:var(--accent)}
+nav .sep{width:1px;height:22px;background:#33496a;margin:0 8px}
+nav .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:#6f86a6;margin-right:4px}
+.who{font-size:12px;color:#b9c6d8;white-space:nowrap}
+.who button{margin-left:8px;background:none;border:1px solid #3b5272;color:#dfe7f1;border-radius:6px;padding:4px 10px}
+main{padding:20px;max-width:1600px;margin:0 auto}
+.view{display:none}.view.on{display:block}
+.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.bar h2{margin:0 12px 0 0;font-size:18px}
+.spacer{flex:1}
+.btn{border:0;border-radius:7px;padding:8px 14px;font-weight:600;background:var(--accent);color:var(--navy);white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--accent-d)}
+.btn.sec{background:#fff;border:1px solid var(--line);color:var(--text);font-weight:500}
+.btn.sec:hover:not(:disabled){background:var(--row-hover)}
+.btn.dark{background:var(--navy);color:#fff}
+.btn.dark:hover:not(:disabled){background:var(--navy2)}
+.btn.danger{background:#fff;border:1px solid #f0c9c3;color:var(--bad);font-weight:500}
+.btn.sm{padding:5px 10px;font-size:12.5px}
+.search{padding:8px 12px;border:1px solid var(--line);border-radius:7px;min-width:260px;background:#fff}
+.sel{padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:#fff}
+.chk{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px;white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px}
+.hint{color:var(--muted);font-size:12.5px}
+.count{color:var(--muted);font-size:12.5px}
+
+.grid-wrap{overflow:auto;max-height:calc(100vh - 170px)}
+table.grid{width:100%;border-collapse:collapse}
+.grid th{position:sticky;top:0;background:#f8fafc;z-index:2;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:600;padding:9px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+.grid th.sortable{cursor:pointer}
+.grid th.r,.grid td.r{text-align:right}
+.grid th.c,.grid td.c{text-align:center}
+.grid td{padding:0 4px;border-bottom:1px solid var(--line2);height:36px;vertical-align:middle}
+.grid td.pad{padding:0 8px}
+.grid tr:hover td{background:var(--row-hover)}
+.grid tr.inactive td{opacity:.5}
+.grid tr.group td{background:#eef2f7;font-weight:600;font-size:12px;color:var(--navy2);height:30px;padding-left:10px}
+.grid tfoot td{background:#f8fafc;font-weight:600;border-top:2px solid var(--line);height:40px;padding:0 8px;position:sticky;bottom:0;z-index:2}
+.cell{width:100%;border:1px solid transparent;background:transparent;padding:6px 6px;border-radius:5px;min-width:0}
+.cell:hover{border-color:var(--line)}
+.cell:focus{outline:none;border-color:var(--accent);background:var(--edit)}
+.cell.num{text-align:right}
+select.cell{padding:5px 2px}
+.cell.saved{background:#e8f6ee;transition:background .6s}
+.cell.err{background:#fde9e6}
+.tag{display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}
+.tag.new{background:#e5effc;color:var(--blue)}
+.tag.chg{background:#fff1d6;color:#8a5a00}
+.tag.same{background:#eef1f5;color:var(--muted)}
+.tag.warn{background:#fde9e6;color:var(--bad)}
+.tag.ok{background:#e3f4ea;color:var(--good)}
+.tag.man{background:#efe6fb;color:#6a3fb5}
+.icon-btn{background:none;border:0;color:var(--muted);padding:4px 6px;border-radius:5px;font-size:13px}
+.icon-btn:hover{background:var(--line2);color:var(--text)}
+.qlink{font-size:12px;white-space:nowrap}
+.note-flag{color:var(--accent-d);font-size:12px;cursor:help}
+.mode{border:1px solid var(--line);background:#fff;border-radius:5px;font-size:11px;padding:3px 6px;color:var(--muted);white-space:nowrap}
+.mode.per{color:var(--blue);border-color:#c7d9f3;background:#f2f7fe}
+
+.asm-layout{display:grid;grid-template-columns:320px 1fr;gap:16px;align-items:start}
+.side-list{max-height:calc(100vh - 230px);overflow:auto}
+.side-list .it{padding:10px 14px;border-bottom:1px solid var(--line2);cursor:pointer}
+.side-list .it:hover{background:var(--row-hover)}
+.side-list .it.on{background:#fff7e6;border-left:3px solid var(--accent);padding-left:11px}
+.side-list .it .n{font-weight:600}
+.side-list .it .m{font-size:12px;color:var(--muted);margin-top:2px;display:flex;gap:8px}
+.asm-head{display:grid;grid-template-columns:2fr 90px 1fr;gap:10px;padding:16px;border-bottom:1px solid var(--line)}
+.fld label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px}
+.fld input,.fld select,.fld textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:#fff}
+.fld textarea{min-height:70px;resize:vertical}
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;padding:16px;background:#f8fafc;border-top:1px solid var(--line);border-radius:0 0 10px 10px}
+.tot .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+.tot .v{font-size:17px;font-weight:600;margin-top:2px}
+.tot.big .v{color:var(--navy);font-size:20px}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.panel-h{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.panel-h h3{margin:0;font-size:15px}
+.panel-b{padding:16px}
+
+/* job workspace */
+.job-top{display:flex;align-items:flex-start;gap:16px;margin-bottom:12px;flex-wrap:wrap}
+.job-title{flex:1;min-width:320px}
+.job-title input.big{font-size:20px;font-weight:700;border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:6px;width:100%}
+.job-title input.big:focus{outline:none;border-color:var(--accent);background:var(--edit)}
+.job-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.job-meta .m{display:flex;flex-direction:column}
+.job-meta label{font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);font-weight:600;padding-left:6px}
+.job-meta input,.job-meta select{border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:6px;width:150px}
+.job-meta input:hover,.job-meta select:hover{border-color:var(--line)}
+.job-meta input:focus{outline:none;border-color:var(--accent);background:var(--edit)}
+.job-total{background:var(--navy);color:#fff;border-radius:10px;padding:12px 18px;text-align:right;min-width:220px}
+.job-total .l{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#9fb2cc}
+.job-total .v{font-size:24px;font-weight:700;color:var(--accent)}
+.job-total .s{font-size:11.5px;color:#b9c6d8;margin-top:2px}
+.subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.subtabs button{background:none;border:0;border-bottom:3px solid transparent;padding:9px 14px;font-weight:600;color:var(--muted)}
+.subtabs button.on{color:var(--navy);border-bottom-color:var(--accent)}
+.bd-layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+#bdMain{min-width:0}
+.bd-head{display:grid;grid-template-columns:110px 1fr 110px 80px;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.sum-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--line)}
+.sum-col{padding:14px 16px;border-right:1px solid var(--line2)}
+.sum-col:last-child{border-right:0}
+.sum-col h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+.sum-row{display:flex;justify-content:space-between;padding:3px 0;font-size:13px}
+.sum-row.t{border-top:1px solid var(--line);margin-top:4px;padding-top:6px;font-weight:600}
+.unit-box{display:flex;align-items:center;gap:20px;padding:14px 16px;background:#fff7e6;border-top:1px solid #f3dfb3;border-radius:0 0 10px 10px;flex-wrap:wrap}
+.unit-box .big{font-size:22px;font-weight:700;color:var(--navy)}
+.unit-box input{width:130px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;text-align:right}
+.op-row td{background:#f6f8fb;font-weight:600}
+#blTable{min-width:1320px}
+#blTable td:nth-child(7) .cell{min-width:48px}
+.days-in{width:90px;text-align:right;padding:5px 8px;border:1px solid var(--line);border-radius:6px}
+.days-in.ovr{border-color:#c9b2ef;background:#f7f2fe}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form .full{grid-column:1/-1}
+.form3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+
+.ov{position:fixed;inset:0;background:rgba(15,31,51,.45);display:none;align-items:flex-start;justify-content:center;z-index:50;padding:40px 16px;overflow:auto}
+.ov.on{display:flex}
+.modal{background:#fff;border-radius:12px;width:640px;max-width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal.wide{width:1000px}
+.modal.full{width:1100px}
+.modal-h{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+.modal-h h3{margin:0;font-size:16px;flex:1}
+.modal-b{padding:18px 20px}
+.modal-f{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;align-items:center}
+.pick-list{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:10px}
+.pick-list .p{display:flex;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line2);cursor:pointer;align-items:center}
+.pick-list .p:hover{background:#fff7e6}
+.pick-list .p.on{background:#fff3d6}
+.pick-list .p .d{flex:1}
+.pick-list .p .c{color:var(--muted);font-size:12px;white-space:nowrap}
+.pick-list .p input.q{width:80px;padding:4px 6px;border:1px solid var(--line);border-radius:5px;text-align:right}
+
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:8px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60}
+#toast.on{opacity:1}
+#toast.bad{background:var(--bad)}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:28px;text-align:center;color:var(--muted);background:#fff}
+.drop.over{border-color:var(--accent);background:#fff7e6}
+.steps{margin:0;padding-left:20px;line-height:1.7}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+.logo-prev{max-height:60px;max-width:220px;display:block;margin-bottom:6px;border:1px solid var(--line);border-radius:6px;padding:4px;background:#fff}
+@media (max-width:1000px){.asm-layout,.two,.bd-layout{grid-template-columns:1fr}.asm-head,.bd-head{grid-template-columns:1fr}.sum-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <form class="login-card" id="loginForm">
+    <h1>MC4 <span style="color:var(--accent-d)">Estimating</span></h1>
+    <p>Sign in to continue</p>
+    <label>Email</label><input id="lEmail" type="email" autocomplete="username" required>
+    <label>Password</label><input id="lPass" type="password" autocomplete="current-password" required>
+    <button class="btn" type="submit">Sign in</button>
+    <div id="loginErr"></div>
+  </form>
+</div>
+
+<div id="app" style="display:none">
+<header>
+  <div class="brand">MC4 <span>Estimating</span></div>
+  <nav id="nav">
+    <button data-v="jobs" class="on">Estimates</button>
+    <span class="sep"></span><span class="lbl">Catalog</span>
+    <button data-v="items">Items</button>
+    <button data-v="assemblies">Assemblies</button>
+    <button data-v="rates">Rates &amp; Crews</button>
+    <button data-v="codes">Cost Codes</button>
+    <button data-v="company">Company &amp; Proposal</button>
+    <button data-v="reports">Price History</button>
+    <button data-v="io">Import / Export</button>
+  </nav>
+  <div class="who"><span id="whoEmail"></span><button id="signOut">Sign out</button></div>
+</header>
+
+<main>
+<!-- ESTIMATES LIST -->
+<section class="view on" id="v-jobs">
+  <div id="jobsList">
+    <div class="bar">
+      <h2>Estimates</h2>
+      <input class="search" id="jSearch" placeholder="Search job name, number, owner…">
+      <select class="sel" id="jStatus"><option value="">All statuses</option></select>
+      <span class="spacer"></span>
+      <button class="btn" id="jNew">+ New Estimate</button>
+    </div>
+    <div class="card grid-wrap">
+      <table class="grid" id="jTable"><thead><tr>
+        <th style="width:110px">Job #</th><th>Name</th><th>Owner / Client</th><th style="width:110px">Bid Date</th><th style="width:70px">Rev</th>
+        <th style="width:120px">Status</th><th class="r" style="width:150px">Total</th><th style="width:100px">Updated</th><th style="width:90px"></th></tr></thead>
+        <tbody></tbody></table>
+    </div>
+  </div>
+  <div id="jobWs" style="display:none"></div>
+</section>
+
+<!-- ITEMS -->
+<section class="view" id="v-items">
+  <div class="bar">
+    <h2>Catalog Items</h2>
+    <input class="search" id="iSearch" placeholder="Search description, vendor, part #…">
+    <select class="sel" id="iCode"><option value="">All cost codes</option></select>
+    <label class="chk"><input type="checkbox" id="iGroup" checked> Group by cost code</label>
+    <label class="chk"><input type="checkbox" id="iInactive"> Show inactive</label>
+    <span class="spacer"></span>
+    <span class="count" id="iCount"></span>
+    <button class="btn" id="iNew">+ New Item</button>
+  </div>
+  <div class="card grid-wrap">
+    <table class="grid" id="iTable">
+      <thead><tr>
+        <th class="sortable" data-s="description" style="min-width:280px">Description</th>
+        <th style="width:70px">Unit</th>
+        <th style="width:150px">Cost Code</th>
+        <th style="width:160px">Operation</th>
+        <th class="r sortable" data-s="unit_price" style="width:110px">Unit Price</th>
+        <th class="r sortable" data-s="labor_hours" style="width:100px">Labor Hrs/Unit</th>
+        <th class="sortable" data-s="vendor" style="width:110px">Vendor</th>
+        <th style="width:60px">Quote</th>
+        <th class="sortable" data-s="updated_at" style="width:90px">Updated</th>
+        <th style="width:60px"></th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="hint">Click any cell to edit. Changes save when you leave the cell. Price and labor changes are logged to Price History.</p>
+</section>
+
+<!-- ASSEMBLIES -->
+<section class="view" id="v-assemblies">
+  <div class="bar">
+    <h2>Master Assemblies</h2>
+    <span class="hint">Saved groups of parts. On each job you choose which parts to bring over.</span>
+    <span class="spacer"></span>
+    <button class="btn" id="aNew">+ New Assembly</button>
+  </div>
+  <div class="asm-layout">
+    <div class="card">
+      <div style="padding:10px"><input class="search" id="aSearch" placeholder="Search assemblies…" style="width:100%;min-width:0"></div>
+      <div class="side-list" id="aList"></div>
+    </div>
+    <div class="card" id="aDetail"><div class="empty">Select an assembly</div></div>
+  </div>
+</section>
+
+<!-- RATES & CREWS -->
+<section class="view" id="v-rates">
+  <div class="two">
+    <div>
+      <div class="card">
+        <div class="panel-h"><h3>Default Rates &amp; Markups</h3></div>
+        <table class="grid" id="sTable"><thead><tr><th>Setting</th><th class="r" style="width:160px">Value</th></tr></thead><tbody></tbody></table>
+        <p class="hint" style="padding:0 16px 12px">New estimates start with these values. Each estimate can change them under its own Rates &amp; Crews tab.</p>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="panel-h"><h3>Equipment</h3><span class="spacer"></span><label class="chk"><input type="checkbox" id="eInactive"> Show inactive</label><button class="btn sm" id="eNew">+ Add</button></div>
+        <table class="grid" id="eTable"><thead><tr><th>Equipment</th><th class="r" style="width:130px">Rate / Hour</th><th>Notes</th><th style="width:44px"></th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="panel-h"><h3>Operations &amp; Crews</h3><span class="spacer"></span><button class="btn sm" id="oNew">+ Add Operation</button></div>
+      <div class="panel-b hint" style="padding-bottom:0">Each catalog item belongs to an operation. On a bid item, equipment days = that operation's labor hours ÷ crew size ÷ hours per day.</div>
+      <div id="opsBox" style="padding:12px 16px 16px"></div>
+    </div>
+  </div>
+</section>
+
+<!-- COST CODES -->
+<section class="view" id="v-codes">
+  <div class="bar"><h2>Cost Codes</h2><span class="spacer"></span><button class="btn" id="cNew">+ Add Cost Code</button></div>
+  <div class="card" style="max-width:720px">
+    <table class="grid" id="cTable"><thead><tr><th style="width:130px">Code</th><th>Name</th><th class="r" style="width:90px">Items</th><th style="width:44px"></th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<!-- COMPANY & PROPOSAL -->
+<section class="view" id="v-company">
+  <div class="bar"><h2>Company &amp; Proposal Defaults</h2><span class="hint">Used on every proposal PDF. Each estimate can change the wording on its own Proposal tab.</span><span class="spacer"></span><button class="btn" id="coSave">Save</button></div>
+  <div class="two">
+    <div class="card panel-b"><div class="form" id="coForm1"></div></div>
+    <div class="card panel-b"><div class="form" id="coForm2"></div></div>
+  </div>
+</section>
+
+<!-- REPORTS -->
+<section class="view" id="v-reports">
+  <div class="bar">
+    <h2>Price History</h2>
+    <input class="search" id="rSearch" placeholder="Item description…" style="min-width:220px">
+    <select class="sel" id="rCode"><option value="">All cost codes</option></select>
+    <label class="chk">From <input type="date" class="sel" id="rFrom"></label>
+    <label class="chk">To <input type="date" class="sel" id="rTo"></label>
+    <label class="chk"><input type="checkbox" id="rChanges" checked> Changes only</label>
+    <button class="btn sec" id="rRun">Run</button>
+    <span class="spacer"></span>
+    <button class="btn" id="rExport">Export to Excel</button>
+  </div>
+  <div class="card grid-wrap">
+    <table class="grid" id="rTable"><thead><tr>
+      <th style="width:150px">Date</th><th>Item</th><th style="width:90px">Cost Code</th>
+      <th class="r" style="width:110px">Old Price</th><th class="r" style="width:110px">New Price</th><th class="r" style="width:90px">Change</th>
+      <th class="r" style="width:100px">Labor Hrs</th><th style="width:110px">Vendor</th><th style="width:70px">Quote</th><th style="width:190px">Changed By</th>
+    </tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<!-- IMPORT / EXPORT -->
+<section class="view" id="v-io">
+  <div class="two">
+    <div class="card" style="padding:18px">
+      <h3 style="margin-top:0">Export Catalog</h3>
+      <p class="hint">Downloads an Excel workbook with tabs for Items, Assemblies, Equipment, Operations, Rates and Cost Codes.</p>
+      <button class="btn" id="xAll">Export Full Catalog</button>
+      <button class="btn sec" id="xTemplate" style="margin-left:6px">Download Item Import Template</button>
+    </div>
+    <div class="card" style="padding:18px">
+      <h3 style="margin-top:0">Import Catalog Items from Excel</h3>
+      <ol class="steps hint">
+        <li>Export the catalog (or the template) and edit the <b>Items</b> tab in Excel.</li>
+        <li>Keep the <b>ID</b> column on rows you're updating. Leave it blank for new items.</li>
+        <li>Drop the file below, review the preview, then click <b>Apply</b>.</li>
+      </ol>
+      <div class="drop" id="drop">Drop an .xlsx file here or <label style="color:var(--blue);cursor:pointer;text-decoration:underline">browse<input type="file" id="fileIn" accept=".xlsx,.xls,.csv" hidden></label></div>
+      <p class="hint" style="margin-bottom:0">To import an owner's bid item list, open an estimate and use <b>Import Bid Items</b>.</p>
+    </div>
+  </div>
+  <div id="impPreview" style="margin-top:16px"></div>
+</section>
+</main>
+</div>
+
+<div class="ov" id="ov"><div class="modal" id="modal"></div></div>
+<div id="toast"></div>
+
+<script>
+/* ================= CONFIG ================= */
+const SB_URL = 'https://hnmksagcfuloxmgeozqc.supabase.co';
+const SB_KEY = 'sb_publishable_izmj4Rn05QnJV2i_4CdmLQ_SXR2wOEX';
+const UNITS = ['ea','lf','ft','cy','sf','ls','roll','can','lb','gal','box','hr','day','ton','mo'];
+const STATUSES = ['Draft','Submitted','Won','Lost','Archived'];
+const ROUND_MODES = [['auto','Auto — up to $1 if ≥ $100, else up to $0.10'],['none','No rounding'],['0.01','Up to $0.01'],['0.05','Up to $0.05'],['0.1','Up to $0.10'],['1','Up to $1'],['10','Up to $10']];
+
+const sb = supabase.createClient(SB_URL, SB_KEY);
+const S = { items:[], codes:[], settings:[], equipment:[], ops:[], opEq:[], assemblies:[], lines:[], company:{}, jobs:[],
+  sort:{k:'description',d:1}, asmSel:null, history:[], imp:null,
+  job:null, bis:[], bls:[], jobTab:'sheet', biSel:null };
+
+/* ================= HELPERS ================= */
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = v => v==null||v==='' ? '' : Number(v).toLocaleString('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2});
+const money0 = v => Number(v||0).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
+const num = (v,d=3) => v==null||v==='' ? '' : Number(v).toLocaleString('en-US',{maximumFractionDigits:d});
+const pctTxt = v => num(Number(v)*100,4)+'%';
+const fdate = v => v ? new Date(v).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}) : '';
+const fdt = v => v ? new Date(v).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) : '';
+const parseNum = v => { if(typeof v==='number') return v; const n = parseFloat(String(v??'').replace(/[$,%\s]/g,'')); return isNaN(n) ? null : n; };
+const setting = k => Number((S.settings.find(s=>s.key===k)||{}).value||0);
+const codeName = c => (S.codes.find(x=>x.code===c)||{}).name || '';
+const opName = id => (S.ops.find(x=>x.id===id)||{}).name || '';
+const itemById = id => S.items.find(i=>i.id===id);
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==='x'?r:(r&3|8)).toString(16);}));
+function toast(msg, bad){ const t=$('#toast'); t.textContent=msg; t.className='on'+(bad?' bad':''); clearTimeout(t._t); t._t=setTimeout(()=>t.className='',2600); }
+function flash(el, ok){ if(!el) return; el.classList.remove('saved','err'); void el.offsetWidth; el.classList.add(ok?'saved':'err'); setTimeout(()=>el.classList.remove('saved'),900); }
+function codeOptions(sel, blankLabel){
+  return (blankLabel!=null?`<option value="">${esc(blankLabel)}</option>`:'') +
+    S.codes.map(c=>`<option value="${esc(c.code)}" ${c.code===sel?'selected':''}>${esc(c.code)} – ${esc(c.name)}</option>`).join('');
+}
+function opOptions(sel, blankLabel, list){
+  list = list || S.ops.filter(o=>o.active||o.id===sel);
+  return (blankLabel!=null?`<option value="">${esc(blankLabel)}</option>`:'') + list.map(o=>`<option value="${o.id}" ${o.id===sel?'selected':''}>${esc(o.name)}</option>`).join('');
+}
+function safeUrl(u){ try{ const x=new URL(u); return /^https?:$/.test(x.protocol)?x.href:null; }catch{ return null; } }
+function normCode(s){ s=String(s??'').trim().replace(/\.+$/,'').replace(/\s+/g,''); return /^\d+(\.\d+)?$/.test(s) ? String(parseFloat(s)) : s.toLowerCase(); }
+function roundUp(v, mode){ if(!isFinite(v)) return 0; const step = mode==='auto' ? (v>=100?1:0.1) : mode==='none' ? 0 : Number(mode); if(!step) return v; return (Math.round(Math.ceil(v/step - 1e-9)*step*100)/100) + 0; }
+async function dbErr(r, what){ if(r.error){ toast((what||'Save')+' failed: '+r.error.message, true); return true; } return false; }
+
+/* ================= AUTH ================= */
+$('#loginForm').addEventListener('submit', async e=>{
+  e.preventDefault(); $('#loginErr').textContent='';
+  const { error } = await sb.auth.signInWithPassword({ email:$('#lEmail').value.trim(), password:$('#lPass').value });
+  if(error) $('#loginErr').textContent = error.message;
+});
+$('#signOut').onclick = ()=> sb.auth.signOut();
+sb.auth.onAuthStateChange((_ev, session)=>{
+  if(session){ $('#login').style.display='none'; $('#app').style.display='block'; $('#whoEmail').textContent=session.user.email; S.user=session.user.email; if(!S.loaded){ S.loaded=true; loadAll(); } }
+  else { $('#login').style.display='flex'; $('#app').style.display='none'; S.loaded=false; }
+});
+
+/* ================= LOAD ================= */
+async function loadAll(){
+  const r = await Promise.all([
+    sb.from('catalog_items').select('*').order('description'),
+    sb.from('cost_codes').select('*').order('sort').order('code'),
+    sb.from('settings').select('*').order('sort'),
+    sb.from('equipment').select('*').order('name'),
+    sb.from('assemblies').select('*').order('name'),
+    sb.from('assembly_items').select('*').order('sort'),
+    sb.from('operations').select('*').order('sort'),
+    sb.from('operation_equipment').select('*'),
+    sb.from('company_profile').select('*').eq('id',1).single(),
+    sb.from('jobs').select('id,job_number,name,owner,location,bid_date,status,revision,total,updated_at').order('updated_at',{ascending:false}),
+  ]);
+  const err = r.find(x=>x.error && x.error.code!=='PGRST116');
+  if(err){ toast('Load failed: '+err.error.message, true); return; }
+  [S.items,S.codes,S.settings,S.equipment,S.assemblies,S.lines,S.ops,S.opEq] = r.slice(0,8).map(x=>x.data||[]);
+  S.company = r[8].data || {id:1}; S.jobs = r[9].data || [];
+  $('#iCode').innerHTML = codeOptions('', 'All cost codes');
+  $('#rCode').innerHTML = codeOptions('', 'All cost codes');
+  $('#jStatus').innerHTML = '<option value="">All statuses</option>'+STATUSES.map(s=>`<option>${s}</option>`).join('');
+  renderJobs(); renderItems(); renderAsmList(); renderSettings(); renderEquip(); renderOps(); renderCodes(); renderCompany();
+}
+
+/* ================= NAV ================= */
+$('#nav').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id==='v-'+b.dataset.v));
+  if(b.dataset.v==='reports' && !S.historyRan) runHistory();
+  if(b.dataset.v==='jobs' && !S.job) renderJobs();
+});
+
+/* =====================================================================
+   ESTIMATES — LIST
+   ===================================================================== */
+function renderJobs(){
+  const q=$('#jSearch').value.trim().toLowerCase(), st=$('#jStatus').value;
+  const list=S.jobs.filter(j=>(!st||j.status===st)&&(!q||[j.name,j.job_number,j.owner,j.location].some(v=>(v||'').toLowerCase().includes(q))));
+  $('#jTable tbody').innerHTML = list.map(j=>`<tr data-id="${j.id}" style="cursor:pointer">
+    <td class="pad mono">${esc(j.job_number)}</td><td class="pad"><b>${esc(j.name)}</b>${j.location?`<div class="hint">${esc(j.location)}</div>`:''}</td><td class="pad">${esc(j.owner)}</td>
+    <td class="pad">${j.bid_date?new Date(j.bid_date+'T12:00').toLocaleDateString('en-US'):''}</td><td class="pad">${esc(j.revision)}</td>
+    <td class="pad"><span class="tag ${j.status==='Won'?'ok':j.status==='Lost'?'warn':j.status==='Submitted'?'new':'same'}">${esc(j.status)}</span></td>
+    <td class="r pad num">${money(j.total)}</td><td class="pad hint">${fdate(j.updated_at)}</td>
+    <td class="pad" style="white-space:nowrap"><button class="icon-btn" data-act="dup" title="Copy as new revision">⧉</button><button class="icon-btn" data-act="del" title="Delete">✕</button></td></tr>`).join('')
+    || `<tr><td colspan="9" class="empty">No estimates yet. Click “+ New Estimate” to start one.</td></tr>`;
+}
+$('#jSearch').addEventListener('input',renderJobs); $('#jStatus').addEventListener('change',renderJobs);
+$('#jTable tbody').addEventListener('click', async e=>{
+  const tr=e.target.closest('tr[data-id]'); if(!tr) return; const id=tr.dataset.id;
+  if(e.target.closest('[data-act="del"]')){ const j=S.jobs.find(x=>x.id===id); if(!confirm(`Delete estimate “${j.name}” and all its bid items?`)) return;
+    if(await dbErr(await sb.from('jobs').delete().eq('id',id),'Delete')) return; S.jobs=S.jobs.filter(x=>x.id!==id); renderJobs(); return; }
+  if(e.target.closest('[data-act="dup"]')) return duplicateJob(id);
+  openJob(id);
+});
+$('#jNew').onclick = ()=>{
+  modal(`<div class="modal-h"><h3>New Estimate</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b"><div class="form">
+      <div class="fld full"><label>Project Name</label><input id="njName" placeholder="e.g. 215 NW Trail Lighting"></div>
+      <div class="fld"><label>Job / Bid #</label><input id="njNum"></div>
+      <div class="fld"><label>Bid Date</label><input id="njDate" type="date"></div>
+      <div class="fld"><label>Owner / Client</label><input id="njOwner" placeholder="e.g. NDOT"></div>
+      <div class="fld"><label>Location</label><input id="njLoc"></div>
+    </div><p class="hint" style="margin-bottom:0">Rates, markups, crews and equipment are copied from the catalog defaults. You can change them for this job afterwards.</p></div>
+    <div class="modal-f"><button class="btn sec" data-close>Cancel</button><button class="btn" id="njGo">Create</button></div>`);
+  $('#njName').focus();
+  $('#njGo').onclick = async ()=>{
+    const name=$('#njName').value.trim(); if(!name) return toast('Project name is required',true);
+    const rec={ name, job_number:$('#njNum').value.trim()||null, bid_date:$('#njDate').value||null, owner:$('#njOwner').value.trim()||null, location:$('#njLoc').value.trim()||null,
+      material_markup:setting('material_markup'), tax_rate:setting('tax_rate'), labor_rate:setting('labor_rate'), labor_markup:setting('labor_markup'), equipment_markup:setting('equipment_markup'),
+      ops:snapshotOps(), proposal:{}, created_by:S.user };
+    const r=await sb.from('jobs').insert(rec).select().single(); if(await dbErr(r,'Create')) return;
+    S.jobs.unshift(r.data); closeModal(); openJob(r.data.id, 'sheet', true);
+  };
+};
+function snapshotOp(o){ return { id:o.id, name:o.name, crew:Number(o.crew_size), hpd:Number(o.hours_per_day),
+  equip:S.opEq.filter(x=>x.operation_id===o.id).map(x=>{ const e=S.equipment.find(e=>e.id===x.equipment_id)||{}; return {equipment_id:x.equipment_id, name:e.name||'?', qty:Number(x.qty), rate:Number(e.rate_per_hour||0)}; }) }; }
+function snapshotOps(){ return S.ops.filter(o=>o.active).map(snapshotOp); }
+
+async function duplicateJob(id){
+  const r=await sb.from('jobs').select('*').eq('id',id).single(); if(await dbErr(r,'Copy')) return;
+  const src=r.data; const bi=await sb.from('bid_items').select('*').eq('job_id',id); if(await dbErr(bi,'Copy')) return;
+  const ids=bi.data.map(b=>b.id); let bl={data:[]}; if(ids.length){ bl=await sb.from('bid_lines').select('*').in('bid_item_id',ids); if(await dbErr(bl,'Copy')) return; }
+  const nextRev = (()=>{ const m=String(src.revision||'R0').match(/(\d+)/); return 'R'+((m?+m[1]:0)+1); })();
+  const {id:_, created_at, updated_at, ...rest}=src;
+  const nj={...rest, id:uuid(), revision:nextRev, status:'Draft', created_by:S.user};
+  if(await dbErr(await sb.from('jobs').insert(nj),'Copy')) return;
+  const map={}; const nbi=bi.data.map(b=>{ const n={...b, id:uuid(), job_id:nj.id}; delete n.created_at; map[b.id]=n.id; return n; });
+  if(nbi.length && await dbErr(await sb.from('bid_items').insert(nbi),'Copy')) return;
+  const nbl=bl.data.map(l=>({...l, id:uuid(), bid_item_id:map[l.bid_item_id]}));
+  for(let i=0;i<nbl.length;i+=500){ if(await dbErr(await sb.from('bid_lines').insert(nbl.slice(i,i+500)),'Copy')) return; }
+  S.jobs.unshift({...nj, updated_at:new Date().toISOString()}); renderJobs(); toast(`Copied as ${nextRev}`);
+}
+
+/* =====================================================================
+   ESTIMATE — WORKSPACE
+   ===================================================================== */
+async function openJob(id, tab, askImport){
+  const [j,bi]=await Promise.all([ sb.from('jobs').select('*').eq('id',id).single(), sb.from('bid_items').select('*').eq('job_id',id).order('sort') ]);
+  if(await dbErr(j,'Load')||await dbErr(bi,'Load')) return;
+  const ids=bi.data.map(b=>b.id); let bl={data:[]};
+  if(ids.length){ bl=await sb.from('bid_lines').select('*').in('bid_item_id',ids).order('sort'); if(await dbErr(bl,'Load')) return; }
+  S.job=j.data; S.job.ops=S.job.ops||[]; S.job.proposal=S.job.proposal||{}; S.bis=bi.data; S.bls=bl.data; S.jobTab=tab||'sheet'; S.biSel=S.bis[0]?.id||null;
+  $('#jobsList').style.display='none'; $('#jobWs').style.display='block';
+  renderJob();
+  if(askImport) openBidImport();
+}
+function closeJob(){ S.job=null; $('#jobWs').style.display='none'; $('#jobsList').style.display='block'; renderJobs(); }
+const linesOf = biId => S.bls.filter(l=>l.bid_item_id===biId).sort((a,b)=>(a.sort||0)-(b.sort||0));
+const jobOp = id => (S.job.ops||[]).find(o=>o.id===id);
+const lineTQ = (l,biq) => l.qty_mode==='per' ? Number(l.qty)*Number(biq||0) : Number(l.qty);
+
+function calcItem(bi){
+  const J=S.job, q=Number(bi.qty)||0, ls=linesOf(bi.id);
+  let mat=0, hrs=0; const opHrs={};
+  ls.forEach(l=>{ const tq=lineTQ(l,q); mat+=tq*Number(l.unit_price||0); const h=tq*Number(l.labor_hours||0); hrs+=h; const k=l.operation_id||''; opHrs[k]=(opHrs[k]||0)+h; });
+  const tax=mat*J.tax_rate, matOH=(mat+tax)*J.material_markup, matT=mat+tax+matOH;
+  const lab=hrs*J.labor_rate, labOH=lab*J.labor_markup, labT=lab+labOH;
+  const ovr=bi.day_overrides||{}; const ops=[]; let eq=0;
+  Object.keys(opHrs).forEach(k=>{
+    const o=jobOp(k); const h=opHrs[k];
+    if(!o){ ops.push({id:k, name:k?'(operation not in this job)':'No operation', hrs:h, crew:0, hpd:0, calcDays:0, days:0, override:false, equip:[], cost:0, missing:!!k, none:!k}); return; }
+    const calcDays = o.crew&&o.hpd ? h/o.crew/o.hpd : 0;
+    const isO = ovr[k]!=null && ovr[k]!=='' ; const days = isO ? Number(ovr[k]) : calcDays;
+    const equip=(o.equip||[]).map(e=>({...e, cost:Number(e.qty)*o.hpd*days*Number(e.rate)}));
+    const cost=equip.reduce((s,e)=>s+e.cost,0); eq+=cost;
+    ops.push({id:k,name:o.name,hrs:h,crew:o.crew,hpd:o.hpd,calcDays,days,override:isO,equip,cost});
+  });
+  const eqOH=eq*J.equipment_markup, eqT=eq+eqOH;
+  const total=matT+labT+eqT, calcUnit=q?total/q:0, rounded=roundUp(calcUnit,J.round_mode||'auto');
+  const manual = bi.manual_unit_price!=null && bi.manual_unit_price!=='';
+  const unit = manual ? Number(bi.manual_unit_price) : rounded;
+  return { q, n:ls.length, mat, tax, matOH, matT, hrs, lab, labOH, labT, ops, eq, eqOH, eqT, total, calcUnit, rounded, manual, unit, amount:unit*q };
+}
+function jobTotals(){
+  const t={amount:0,matT:0,labT:0,eqT:0,hrs:0,cost:0};
+  S.bis.forEach(b=>{ const c=calcItem(b); t.amount+=c.amount; t.matT+=c.matT; t.labT+=c.labT; t.eqT+=c.eqT; t.hrs+=c.hrs; t.cost+=c.mat+c.tax+c.lab+c.eq; });
+  return t;
+}
+let totalTimer;
+function refreshTotals(){
+  const t=jobTotals();
+  const el=$('#jTotalV'); if(el){ el.textContent=money(t.amount); $('#jTotalS').textContent=`${num(t.hrs,0)} man-hours · ${S.bis.length} bid items`; }
+  const ft=$('#bsFoot'); if(ft) ft.innerHTML=bsFootHtml(t);
+  clearTimeout(totalTimer);
+  totalTimer=setTimeout(async ()=>{ const v=Math.round(t.amount*100)/100; if(Number(S.job.total)!==v){ S.job.total=v; await sb.from('jobs').update({total:v}).eq('id',S.job.id); const lj=S.jobs.find(x=>x.id===S.job.id); if(lj){ lj.total=v; lj.updated_at=new Date().toISOString(); } } },800);
+}
+async function saveJob(patch){
+  Object.assign(S.job,patch); const r=await sb.from('jobs').update(patch).eq('id',S.job.id); if(await dbErr(r)) return false;
+  const lj=S.jobs.find(x=>x.id===S.job.id); if(lj){ Object.keys(patch).forEach(k=>{ if(k in lj) lj[k]=patch[k]; }); lj.updated_at=new Date().toISOString(); }
+  return true;
+}
+async function saveBI(id, patch){ const b=S.bis.find(x=>x.id===id); Object.assign(b,patch); const r=await sb.from('bid_items').update(patch).eq('id',id); return !(await dbErr(r)); }
+async function saveBL(id, patch){ const l=S.bls.find(x=>x.id===id); Object.assign(l,patch); const r=await sb.from('bid_lines').update(patch).eq('id',id); return !(await dbErr(r)); }
+
+function renderJob(){
+  const J=S.job, t=jobTotals();
+  $('#jobWs').innerHTML = `
+    <div class="job-top">
+      <div class="job-title">
+        <button class="btn sec sm" id="jBack">← All Estimates</button>
+        <input class="big" id="jName" value="${esc(J.name)}" style="margin-top:8px">
+        <div class="job-meta">
+          <div class="m"><label>Job / Bid #</label><input data-j="job_number" value="${esc(J.job_number)}"></div>
+          <div class="m"><label>Owner / Client</label><input data-j="owner" value="${esc(J.owner)}"></div>
+          <div class="m"><label>Location</label><input data-j="location" value="${esc(J.location)}"></div>
+          <div class="m"><label>Bid Date</label><input data-j="bid_date" type="date" value="${esc(J.bid_date)}"></div>
+          <div class="m"><label>Revision</label><input data-j="revision" value="${esc(J.revision)}" style="width:80px"></div>
+          <div class="m"><label>Status</label><select data-j="status">${STATUSES.map(s=>`<option ${s===J.status?'selected':''}>${s}</option>`).join('')}</select></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+        <div class="job-total"><div class="l">Total Bid</div><div class="v num" id="jTotalV">${money(t.amount)}</div><div class="s" id="jTotalS">${num(t.hrs,0)} man-hours · ${S.bis.length} bid items</div></div>
+        <div style="display:flex;gap:6px"><button class="btn sec sm" id="jImp">Import Bid Items</button><button class="btn sec sm" id="jXls">Export Bid Sheets (Excel)</button><button class="btn dark sm" id="jPdf">Proposal PDF</button></div>
+      </div>
+    </div>
+    <div class="subtabs" id="jTabs">
+      <button data-t="sheet">Bid Sheet</button><button data-t="detail">Item Backup</button><button data-t="rates">Rates &amp; Crews</button><button data-t="proposal">Proposal</button>
+    </div>
+    <div id="jBody"></div>`;
+  $('#jBack').onclick=closeJob;
+  $('#jName').onchange=e=>{ const v=e.target.value.trim(); if(v) saveJob({name:v}); };
+  $('#jobWs .job-meta').addEventListener('change', e=>{ const k=e.target.dataset.j; if(!k) return; saveJob({[k]: e.target.value.trim()||null}).then(ok=>flash(e.target,ok)); });
+  $('#jTabs').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; S.jobTab=b.dataset.t; renderJobBody(); };
+  $('#jImp').onclick=openBidImport; $('#jXls').onclick=exportBidSheets; $('#jPdf').onclick=()=>{ S.jobTab='proposal'; renderJobBody(); };
+  renderJobBody();
+}
+function renderJobBody(){
+  document.querySelectorAll('#jTabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===S.jobTab));
+  ({sheet:renderBidSheet, detail:renderDetail, rates:renderJobRates, proposal:renderProposal})[S.jobTab]();
+}
+
+/* ---------- Bid Sheet tab ---------- */
+function bsFootHtml(t){ return `<tr><td colspan="5" class="r">TOTAL AMOUNT OF PROPOSAL</td><td class="r num" style="font-size:15px">${money(t.amount)}</td><td colspan="3" class="hint" style="font-weight:400">Material ${money0(t.matT)} · Labor ${money0(t.labT)} · Equip ${money0(t.eqT)}</td></tr>`; }
+function bsRowHtml(b, i){
+  const c=calcItem(b);
+  const status = c.manual ? '<span class="tag man">Manual price</span>' : c.n ? `<span class="tag ok">${c.n} lines</span>` : '<span class="tag warn">No backup</span>';
+  return `<tr data-id="${b.id}">
+    <td class="hint c">${i+1}</td>
+    <td><input class="cell mono" data-f="item_no" value="${esc(b.item_no)}"></td>
+    <td><input class="cell" data-f="description" value="${esc(b.description)}"></td>
+    <td><input class="cell num" data-f="qty" value="${num(b.qty,4)}"></td>
+    <td><input class="cell" data-f="unit" list="unitList" value="${esc(b.unit)}"></td>
+    <td class="r num pad" data-c="unit">${money(c.unit)}</td>
+    <td class="r num pad" data-c="amt">${money(c.amount)}</td>
+    <td class="pad" data-c="st">${status}</td>
+    <td style="white-space:nowrap"><button class="btn sm sec" data-act="open">Backup →</button><button class="icon-btn" data-act="up" title="Move up">↑</button><button class="icon-btn" data-act="dn" title="Move down">↓</button><button class="icon-btn" data-act="del" title="Delete">✕</button></td></tr>`;
+}
+function renderBidSheet(){
+  const t=jobTotals();
+  $('#jBody').innerHTML = `<div class="card"><div class="grid-wrap" style="max-height:calc(100vh - 330px)"><table class="grid" id="bsTable"><thead><tr>
+      <th class="c" style="width:40px">#</th><th style="width:110px">Bid Item</th><th>Item</th><th class="r" style="width:110px">Approx. Qty</th><th style="width:70px">Unit</th>
+      <th class="r" style="width:130px">Price / Unit</th><th class="r" style="width:150px">Amount</th><th style="width:120px">Backup</th><th style="width:210px"></th></tr></thead>
+      <tbody>${S.bis.map(bsRowHtml).join('') || `<tr><td colspan="9" class="empty">No bid items yet. Click <b>Import Bid Items</b> to bring in the owner's list from Excel, or add one below.</td></tr>`}</tbody>
+      <tfoot id="bsFoot">${bsFootHtml(t)}</tfoot></table></div>
+    <div class="panel-h" style="border-top:1px solid var(--line);border-bottom:0"><button class="btn sm" id="bsAdd">+ Add Bid Item</button><span class="hint">Click <b>Backup →</b> to build an item's material, labor and equipment.</span></div></div>`;
+  const tb=$('#bsTable tbody');
+  tb.onchange=async e=>{ const el=e.target.closest('.cell'); if(!el) return; const id=el.closest('tr').dataset.id, f=el.dataset.f; let v=el.value.trim();
+    if(f==='qty'){ v=parseNum(v); if(v==null) return flash(el,false); } else if(!v && f!=='description') v=null;
+    const ok=await saveBI(id,{[f]:v}); flash(el,ok); refreshBsRow(id); refreshTotals(); };
+  tb.onclick=async e=>{ const b=e.target.closest('[data-act]'); if(!b) return; const id=b.closest('tr').dataset.id;
+    if(b.dataset.act==='open'){ S.biSel=id; S.jobTab='detail'; renderJobBody(); }
+    if(b.dataset.act==='del'){ const bi=S.bis.find(x=>x.id===id); if(!confirm(`Delete bid item ${bi.item_no||''} ${bi.description}?`)) return; if(await dbErr(await sb.from('bid_items').delete().eq('id',id),'Delete')) return;
+      S.bis=S.bis.filter(x=>x.id!==id); S.bls=S.bls.filter(l=>l.bid_item_id!==id); renderBidSheet(); refreshTotals(); }
+    if(b.dataset.act==='up'||b.dataset.act==='dn'){ const ix=S.bis.findIndex(x=>x.id===id), j=ix+(b.dataset.act==='up'?-1:1); if(j<0||j>=S.bis.length) return;
+      [S.bis[ix],S.bis[j]]=[S.bis[j],S.bis[ix]]; await resequence(); renderBidSheet(); }
+  };
+  $('#bsAdd').onclick=async ()=>{ const r=await sb.from('bid_items').insert({job_id:S.job.id, description:'New bid item', qty:1, unit:'ea', sort:S.bis.length+1}).select().single(); if(await dbErr(r)) return;
+    S.bis.push(r.data); renderBidSheet(); refreshTotals(); const inp=document.querySelector(`#bsTable tr[data-id="${r.data.id}"] [data-f="item_no"]`); inp&&inp.focus(); };
+}
+async function resequence(){ await Promise.all(S.bis.map((b,i)=>{ if(b.sort!==i+1){ b.sort=i+1; return sb.from('bid_items').update({sort:i+1}).eq('id',b.id); } })); }
+function refreshBsRow(id){ const tr=document.querySelector(`#bsTable tr[data-id="${id}"]`); if(!tr) return; const b=S.bis.find(x=>x.id===id), c=calcItem(b);
+  tr.querySelector('[data-c=unit]').textContent=money(c.unit); tr.querySelector('[data-c=amt]').textContent=money(c.amount); }
+
+/* ---------- Item Backup tab ---------- */
+function biListHtml(){
+  return S.bis.map(b=>{ const c=calcItem(b); return `<div class="it ${b.id===S.biSel?'on':''}" data-id="${b.id}"><div class="n"><span class="mono">${esc(b.item_no)}</span> ${esc(b.description)}</div>
+    <div class="m"><span>${num(b.qty,2)} ${esc(b.unit)}</span><span class="num">${money(c.unit)}/${esc(b.unit)}</span>${c.n?'':c.manual?'<span class="tag man">manual</span>':'<span class="tag warn">no backup</span>'}</div></div>`; }).join('') || '<div class="empty">No bid items</div>';
+}
+function renderDetail(){
+  if(!S.bis.find(b=>b.id===S.biSel)) S.biSel=S.bis[0]?.id||null;
+  $('#jBody').innerHTML = `<div class="bd-layout"><div class="card"><div class="side-list" id="biList" style="max-height:calc(100vh - 300px)">${biListHtml()}</div></div><div id="bdMain"></div></div>`;
+  $('#biList').onclick=e=>{ const it=e.target.closest('.it'); if(!it) return; S.biSel=it.dataset.id; document.querySelectorAll('#biList .it').forEach(x=>x.classList.toggle('on',x===it)); renderBd(); };
+  renderBd();
+}
+function refreshBiList(){ const el=$('#biList'); if(el){ const st=el.scrollTop; el.innerHTML=biListHtml(); el.scrollTop=st; } }
+function renderBd(){
+  const b=S.bis.find(x=>x.id===S.biSel); const box=$('#bdMain');
+  if(!b){ box.innerHTML='<div class="card empty">Add bid items on the Bid Sheet tab first.</div>'; return; }
+  const ls=linesOf(b.id);
+  box.innerHTML = `<div class="card">
+    <div class="bd-head">
+      <div class="fld"><label>Bid Item</label><input data-b="item_no" class="mono" value="${esc(b.item_no)}"></div>
+      <div class="fld"><label>Description</label><input data-b="description" value="${esc(b.description)}"></div>
+      <div class="fld"><label>Approx. Qty</label><input data-b="qty" class="num" value="${num(b.qty,4)}"></div>
+      <div class="fld"><label>Unit</label><input data-b="unit" list="unitList" value="${esc(b.unit)}"></div>
+    </div>
+    <div class="panel-h"><b>Material &amp; Labor</b><span class="hint">Qty is <span class="mode per">per ${esc(b.unit)}</span> (scales with the bid qty) or <span class="mode">total</span> (fixed, e.g. a quote).</span><span class="spacer"></span>
+      <button class="btn sm" id="bdAsm">+ From Assembly</button><button class="btn sm sec" id="bdCat">+ Catalog Items</button><button class="btn sm sec" id="bdBlank">+ Blank Line</button></div>
+    <div style="overflow:auto"><table class="grid" id="blTable"><thead><tr>
+      <th style="min-width:220px">Description</th><th style="width:120px">Cost Code</th><th style="width:150px">Operation</th>
+      <th class="r" style="width:90px">Qty</th><th style="width:70px"></th><th class="r" style="width:90px">Total Qty</th><th style="width:60px">Unit</th>
+      <th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Material</th><th class="r" style="width:80px">Hrs/Unit</th><th class="r" style="width:80px">Labor Hrs</th>
+      <th style="width:100px">Vendor</th><th style="width:56px"></th></tr></thead>
+      <tbody>${ls.map(l=>blRowHtml(l,b)).join('') || `<tr><td colspan="13" class="empty">No lines yet. Add from a master assembly, pick catalog items, or add a blank line.</td></tr>`}</tbody></table></div>
+    <div class="panel-h" style="border-top:1px solid var(--line)"><b>Equipment by Operation</b><span class="hint">Days = labor hrs ÷ crew ÷ hrs/day. Type in a Days box to override it for this item.</span></div>
+    <div id="bdEquip"></div>
+    <div id="bdSum"></div>
+  </div>`;
+  box.querySelector('.bd-head').onchange=async e=>{ const k=e.target.dataset.b; if(!k) return; let v=e.target.value.trim();
+    if(k==='qty'){ v=parseNum(v); if(v==null) return flash(e.target,false); }
+    const ok=await saveBI(b.id,{[k]:v||(k==='description'?'':null)}); flash(e.target,ok);
+    if(k==='qty'||k==='unit') renderBd(); else { refreshBiList(); } if(k==='qty') refreshBiList(); refreshTotals(); };
+  const tb=$('#blTable tbody');
+  tb.onchange=async e=>{ const el=e.target.closest('.cell'); if(!el) return; const lid=el.closest('tr').dataset.lid, f=el.dataset.f; let v=el.value.trim();
+    if(['qty','unit_price','labor_hours'].includes(f)){ v=parseNum(v); if(v==null) return flash(el,false); } else if(!v && f!=='description') v=null;
+    const ok=await saveBL(lid,{[f]:v}); flash(el,ok);
+    if(f==='operation_id' && v && !jobOp(v)) await ensureJobOps([v]);
+    refreshBlRow(lid); renderBdEquip(); renderBdSum(); refreshBiList(); refreshTotals(); };
+  tb.onclick=async e=>{ const btn=e.target.closest('[data-act]'); if(!btn) return; const lid=btn.closest('tr').dataset.lid, l=S.bls.find(x=>x.id===lid);
+    if(btn.dataset.act==='mode'){ const q=Number(b.qty)||1; const nm=l.qty_mode==='per'?'total':'per'; const nq = nm==='total' ? Number(l.qty)*q : Number(l.qty)/q;
+      await saveBL(lid,{qty_mode:nm, qty:Math.round(nq*1e6)/1e6}); renderBd(); refreshBiList(); refreshTotals(); }
+    if(btn.dataset.act==='rm'){ if(await dbErr(await sb.from('bid_lines').delete().eq('id',lid),'Delete')) return; S.bls=S.bls.filter(x=>x.id!==lid); renderBd(); refreshBiList(); refreshTotals(); }
+  };
+  $('#bdAsm').onclick=()=>pickAssembly(b); $('#bdCat').onclick=()=>pickCatalog(b);
+  $('#bdBlank').onclick=async ()=>{ await addLines(b,[{description:'New line', qty:1, qty_mode:'per', unit:'ea', unit_price:0, labor_hours:0}]); const last=linesOf(b.id).pop(); const inp=document.querySelector(`#blTable tr[data-lid="${last.id}"] [data-f="description"]`); if(inp){ inp.focus(); inp.select(); } };
+  renderBdEquip(); renderBdSum();
+}
+function blRowHtml(l,b){
+  const tq=lineTQ(l,b.qty); const q=safeUrl(l.quote_url);
+  return `<tr data-lid="${l.id}">
+    <td><input class="cell" data-f="description" value="${esc(l.description)}" title="${esc(l.source?('From: '+l.source):'')}"></td>
+    <td><select class="cell" data-f="cost_code">${codeOptions(l.cost_code,'—')}</select></td>
+    <td><select class="cell" data-f="operation_id">${opOptions(l.operation_id,'—')}</select></td>
+    <td><input class="cell num" data-f="qty" value="${num(l.qty,6)}"></td>
+    <td><button class="mode ${l.qty_mode==='per'?'per':''}" data-act="mode" title="Switch between per-unit and total">${l.qty_mode==='per'?'per '+esc(b.unit):'total'}</button></td>
+    <td class="r num pad" data-c="tq">${num(tq,2)}</td>
+    <td><input class="cell" data-f="unit" list="unitList" value="${esc(l.unit)}"></td>
+    <td><input class="cell num" data-f="unit_price" value="${num(l.unit_price,4)}"></td>
+    <td class="r num pad" data-c="mat">${money(tq*Number(l.unit_price||0))}</td>
+    <td><input class="cell num" data-f="labor_hours" value="${num(l.labor_hours,4)}"></td>
+    <td class="r num pad" data-c="hrs">${num(tq*Number(l.labor_hours||0),2)}</td>
+    <td><input class="cell" data-f="vendor" value="${esc(l.vendor)}"></td>
+    <td style="white-space:nowrap">${q?`<a class="qlink" href="${esc(q)}" target="_blank" rel="noopener" title="Open quote">↗</a>`:''}<button class="icon-btn" data-act="rm" title="Remove">✕</button></td></tr>`;
+}
+function refreshBlRow(lid){ const tr=document.querySelector(`#blTable tr[data-lid="${lid}"]`); if(!tr) return; const l=S.bls.find(x=>x.id===lid), b=S.bis.find(x=>x.id===l.bid_item_id), tq=lineTQ(l,b.qty);
+  tr.querySelector('[data-c=tq]').textContent=num(tq,2); tr.querySelector('[data-c=mat]').textContent=money(tq*Number(l.unit_price||0)); tr.querySelector('[data-c=hrs]').textContent=num(tq*Number(l.labor_hours||0),2); }
+function renderBdEquip(){
+  const b=S.bis.find(x=>x.id===S.biSel); const c=calcItem(b); const box=$('#bdEquip'); if(!box) return;
+  if(!c.ops.length){ box.innerHTML='<div class="panel-b hint">No labor hours yet.</div>'; return; }
+  box.innerHTML = `<table class="grid"><thead><tr><th>Operation / Equipment</th><th class="r" style="width:100px">Labor Hrs</th><th class="r" style="width:70px">Crew</th><th class="r" style="width:80px">Hrs/Day</th><th class="r" style="width:120px">Days</th><th class="r" style="width:70px">Qty</th><th class="r" style="width:90px">Rate/Hr</th><th class="r" style="width:120px">Cost</th></tr></thead><tbody>
+    ${c.ops.map(o=>`<tr class="op-row"><td class="pad">${esc(o.name)}${o.missing?' <span class="tag warn">add it on Rates &amp; Crews</span>':''}${o.none&&o.hrs?' <span class="tag warn">assign an operation to get equipment</span>':''}</td>
+      <td class="r num pad">${num(o.hrs,2)}</td><td class="r num pad">${o.crew?num(o.crew,2):''}</td><td class="r num pad">${o.hpd?num(o.hpd,2):''}</td>
+      <td class="r pad">${(o.missing||o.none)?'':`<input class="days-in num ${o.override?'ovr':''}" data-op="${o.id}" value="${o.override?num(o.days,4):''}" placeholder="${num(o.calcDays,3)}" title="${o.override?'Overridden — clear to use calculated '+num(o.calcDays,3):'Calculated'}">`}</td>
+      <td></td><td></td><td class="r num pad">${money(o.cost)}</td></tr>
+      ${o.equip.map(e=>`<tr><td class="pad" style="padding-left:28px">${esc(e.name)}</td><td></td><td></td><td></td><td></td><td class="r num pad">${num(e.qty,2)}</td><td class="r num pad">${money(e.rate)}</td><td class="r num pad">${money(e.cost)}</td></tr>`).join('')}`).join('')}
+    </tbody></table>`;
+  box.querySelectorAll('.days-in').forEach(inp=>inp.onchange=async ()=>{ const v=inp.value.trim(); const ov={...(b.day_overrides||{})};
+    if(v===''){ delete ov[inp.dataset.op]; } else { const n=parseNum(v); if(n==null) return flash(inp,false); ov[inp.dataset.op]=n; }
+    await saveBI(b.id,{day_overrides:ov}); renderBdEquip(); renderBdSum(); refreshBiList(); refreshTotals(); });
+}
+function renderBdSum(){
+  const b=S.bis.find(x=>x.id===S.biSel); const c=calcItem(b), J=S.job; const box=$('#bdSum'); if(!box) return;
+  const r=(l,v,cls)=>`<div class="sum-row ${cls||''}"><span>${l}</span><span class="num">${v}</span></div>`;
+  box.innerHTML = `<div class="sum-grid">
+    <div class="sum-col"><h4>Material</h4>${r('Material cost',money(c.mat))}${r('Tax '+pctTxt(J.tax_rate),money(c.tax))}${r('OH/P '+pctTxt(J.material_markup),money(c.matOH))}${r('Total material',money(c.matT),'t')}</div>
+    <div class="sum-col"><h4>Labor</h4>${r(num(c.hrs,2)+' hrs × '+money(J.labor_rate),money(c.lab))}${r('OH/P '+pctTxt(J.labor_markup),money(c.labOH))}${r('Total labor',money(c.labT),'t')}${r('Labor % of total',c.total?num(c.labT/c.total*100,1)+'%':'—')}</div>
+    <div class="sum-col"><h4>Equipment</h4>${r('Equipment',money(c.eq))}${r('OH/P '+pctTxt(J.equipment_markup),money(c.eqOH))}${r('Total equipment',money(c.eqT),'t')}${r('<b>Item total</b>','<b>'+money(c.total)+'</b>')}</div>
+  </div>
+  <div class="unit-box">
+    <div><div class="hint">Calculated unit price</div><div class="num">${money(c.calcUnit)}</div></div>
+    <div><div class="hint">Rounded (${esc((ROUND_MODES.find(m=>m[0]===(J.round_mode||'auto'))||['',''])[1].split('—')[0].trim())})</div><div class="num">${money(c.rounded)}</div></div>
+    <div><div class="hint">Manual unit price (optional)</div><input id="bdManual" class="num" placeholder="—" value="${c.manual?num(b.manual_unit_price,4):''}"></div>
+    <span class="spacer"></span>
+    <div style="text-align:right"><div class="hint">Bid unit price × ${num(c.q,2)} ${esc(b.unit)}</div><div class="big num">${money(c.unit)} <span class="hint" style="font-size:14px">= ${money(c.amount)}</span></div></div>
+  </div>`;
+  $('#bdManual').onchange=async e=>{ const v=e.target.value.trim(); const n = v===''?null:parseNum(v); if(v!=='' && n==null) return flash(e.target,false);
+    await saveBI(b.id,{manual_unit_price:n}); renderBdSum(); refreshBiList(); refreshTotals(); };
+}
+async function ensureJobOps(opIds){
+  const missing=[...new Set(opIds.filter(id=>id && !jobOp(id)))].map(id=>S.ops.find(o=>o.id===id)).filter(Boolean);
+  if(!missing.length) return; await saveJob({ops:[...S.job.ops, ...missing.map(snapshotOp)]});
+}
+async function addLines(b, recs){
+  let s=Math.max(0,...linesOf(b.id).map(l=>l.sort||0));
+  const rows=recs.map(r=>({bid_item_id:b.id, sort:++s, ...r}));
+  const res=await sb.from('bid_lines').insert(rows).select(); if(await dbErr(res,'Add')) return false;
+  S.bls.push(...res.data); await ensureJobOps(rows.map(r=>r.operation_id));
+  if(S.jobTab==='detail' && S.biSel===b.id){ renderBd(); refreshBiList(); }
+  refreshTotals(); return true;
+}
+function lineFromItem(i, qty, mode, source, ccOverride){ return { item_id:i.id, description:i.description, unit:i.unit, cost_code:ccOverride||i.cost_code, operation_id:i.operation_id,
+  qty, qty_mode:mode||'per', unit_price:Number(i.unit_price), labor_hours:Number(i.labor_hours), vendor:i.vendor, quote_url:i.quote_url, source }; }
+
+function pickAssembly(b){
+  const draw=()=>{ const q=($('#paQ')?.value||'').trim().toLowerCase();
+    $('#paL').innerHTML = S.assemblies.filter(a=>a.active!==false && (!q||a.name.toLowerCase().includes(q)||(a.bid_item_codes||'').includes(q))).map(a=>{
+      const linked=(a.bid_item_codes||'').split(',').map(normCode).filter(Boolean).includes(normCode(b.item_no));
+      return `<div class="p ${linked?'on':''}" data-id="${a.id}"><span class="d"><b>${esc(a.name)}</b>${a.notes?`<div class="hint">${esc(a.notes)}</div>`:''}</span>${linked?'<span class="tag ok">linked to '+esc(b.item_no)+'</span>':''}<span class="c">${S.lines.filter(l=>l.assembly_id===a.id).length} parts · per ${esc(a.unit)}</span></div>`; }).join('') || '<div class="empty">No assemblies</div>'; };
+  modal(`<div class="modal-h"><h3>Add from Master Assembly</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b"><input class="search" id="paQ" placeholder="Search assemblies…" style="width:100%"><div class="pick-list" id="paL"></div></div>`, true);
+  $('#paQ').oninput=draw; draw(); $('#paQ').focus();
+  $('#paL').onclick=e=>{ const p=e.target.closest('.p'); if(p) pickParts(b, S.assemblies.find(a=>a.id===p.dataset.id)); };
+}
+function pickParts(b, a){
+  const parts=S.lines.filter(l=>l.assembly_id===a.id).sort((x,y)=>(x.sort||0)-(y.sort||0));
+  modal(`<div class="modal-h"><h3>${esc(a.name)}</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b">
+      <div style="display:flex;gap:16px;align-items:end;flex-wrap:wrap">
+        <div class="fld" style="width:240px"><label>Assemblies per 1 ${esc(b.unit)} of bid item</label><input id="ppMult" class="num" value="1"></div>
+        <div class="hint" style="flex:1">Tick the parts to bring into <b>${esc(b.item_no||'')} ${esc(b.description)}</b>. Quantities are per ${esc(a.unit)} of the assembly. You can still change anything after it's added.</div>
+        <div><button class="btn sm sec" id="ppAll">All</button> <button class="btn sm sec" id="ppNone">None</button></div>
+      </div>
+      <div class="pick-list" id="ppL">${parts.map(p=>{ const i=itemById(p.item_id)||{}; return `<label class="p ${p.optional?'':'on'}" data-pid="${p.id}">
+        <input type="checkbox" ${p.optional?'':'checked'}> <span class="d">${esc(i.description)}${p.optional?' <span class="tag same">optional</span>':''}${i.active===false?' <span class="tag warn">inactive</span>':''}</span>
+        <span class="c">${esc(p.cost_code||i.cost_code||'')}</span><span class="c num">${money(i.unit_price)}/${esc(i.unit)}</span>
+        <input class="q num" value="${num(p.qty_per,6)}" title="Qty per ${esc(a.unit)}"></label>`; }).join('') || '<div class="empty">This assembly has no parts.</div>'}</div>
+    </div>
+    <div class="modal-f"><button class="btn sec" id="ppBack" style="margin-right:auto">← Back</button><button class="btn sec" data-close>Cancel</button><button class="btn" id="ppGo">Add Selected</button></div>`, true);
+  $('#ppL').onchange=e=>{ const lab=e.target.closest('.p'); if(e.target.type==='checkbox') lab.classList.toggle('on',e.target.checked); };
+  $('#ppL').onclick=e=>{ if(e.target.classList.contains('q')) e.preventDefault(); };
+  $('#ppAll').onclick=()=>document.querySelectorAll('#ppL .p').forEach(p=>{ p.querySelector('input[type=checkbox]').checked=true; p.classList.add('on'); });
+  $('#ppNone').onclick=()=>document.querySelectorAll('#ppL .p').forEach(p=>{ p.querySelector('input[type=checkbox]').checked=false; p.classList.remove('on'); });
+  $('#ppBack').onclick=()=>pickAssembly(b);
+  $('#ppGo').onclick=async ()=>{ const mult=parseNum($('#ppMult').value); if(mult==null) return toast('Enter a number for assemblies per unit',true);
+    const recs=[]; document.querySelectorAll('#ppL .p').forEach(el=>{ if(!el.querySelector('input[type=checkbox]').checked) return; const p=parts.find(x=>x.id===el.dataset.pid), i=itemById(p.item_id); if(!i) return;
+      const q=parseNum(el.querySelector('.q').value); recs.push(lineFromItem(i, Math.round((q??p.qty_per)*mult*1e6)/1e6, 'per', a.name, p.cost_code)); });
+    if(!recs.length) return toast('Nothing selected',true);
+    closeModal(); if(await addLines(b,recs)) toast(`Added ${recs.length} lines from ${a.name}`); };
+}
+function pickCatalog(b){
+  const sel=new Map();
+  modal(`<div class="modal-h"><h3>Add Catalog Items</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b"><div style="display:flex;gap:8px"><input class="search" id="pcQ" placeholder="Search items…" style="flex:1"><select class="sel" id="pcC">${codeOptions('','All cost codes')}</select>
+      <select class="sel" id="pcM"><option value="per">Qty per ${esc(b.unit)}</option><option value="total">Qty is total</option></select></div>
+      <div class="pick-list" id="pcL"></div></div>
+    <div class="modal-f"><span class="hint" id="pcN" style="margin-right:auto">0 selected</span><button class="btn sec" data-close>Cancel</button><button class="btn" id="pcGo">Add</button></div>`, true);
+  const draw=()=>{ const q=$('#pcQ').value.trim().toLowerCase(), c=$('#pcC').value;
+    $('#pcL').innerHTML = S.items.filter(i=>i.active&&(!c||i.cost_code===c)&&(!q||i.description.toLowerCase().includes(q)||(i.vendor||'').toLowerCase().includes(q))).sort((a,b)=>a.description.localeCompare(b.description)).slice(0,300)
+      .map(i=>`<label class="p ${sel.has(i.id)?'on':''}" data-id="${i.id}"><input type="checkbox" ${sel.has(i.id)?'checked':''}><span class="d">${esc(i.description)}</span><span class="c">${esc(i.cost_code||'')}</span><span class="c num">${money(i.unit_price)}/${esc(i.unit)}</span><input class="q num" value="${sel.get(i.id)??1}" title="Qty"></label>`).join('') || '<div class="empty">No matches</div>'; };
+  $('#pcQ').oninput=draw; $('#pcC').onchange=draw; draw(); $('#pcQ').focus();
+  $('#pcL').onclick=e=>{ if(e.target.classList.contains('q')) e.preventDefault(); };
+  $('#pcL').oninput=e=>{ const lab=e.target.closest('.p'); const id=lab.dataset.id; const cb=lab.querySelector('input[type=checkbox]');
+    if(e.target.classList.contains('q')){ if(!cb.checked){ cb.checked=true; } }
+    if(cb.checked) sel.set(id, parseNum(lab.querySelector('.q').value)??1); else sel.delete(id);
+    lab.classList.toggle('on',cb.checked); $('#pcN').textContent=sel.size+' selected'; };
+  $('#pcGo').onclick=async ()=>{ if(!sel.size) return toast('Nothing selected',true); const m=$('#pcM').value;
+    const recs=[...sel].map(([id,q])=>lineFromItem(itemById(id), q, m, 'Catalog')); closeModal(); if(await addLines(b,recs)) toast(`Added ${recs.length} lines`); };
+}
+
+/* ---------- Rates & Crews (job) ---------- */
+function renderJobRates(){
+  const J=S.job;
+  const pf=(k,l)=>`<div class="fld"><label>${l}</label><input class="num" data-jr="${k}" data-pct="1" value="${num(J[k]*100,4)}%"></div>`;
+  $('#jBody').innerHTML = `<div class="two">
+    <div class="card"><div class="panel-h"><h3>Rates &amp; Markups for this Estimate</h3></div><div class="panel-b"><div class="form">
+      ${pf('material_markup','OH/P on Material')}${pf('tax_rate','Sales Tax on Material')}
+      <div class="fld"><label>Labor Rate ($/man-hr)</label><input class="num" data-jr="labor_rate" value="${money(J.labor_rate)}"></div>
+      ${pf('labor_markup','OH/P on Labor')}${pf('equipment_markup','OH/P on Equipment')}
+      <div class="fld"><label>Round Unit Prices</label><select data-jr="round_mode">${ROUND_MODES.map(([v,l])=>`<option value="${v}" ${v===J.round_mode?'selected':''}>${l}</option>`).join('')}</select></div>
+      <div class="fld full"><label>Internal Notes</label><textarea data-jr="notes">${esc(J.notes)}</textarea></div>
+    </div></div></div>
+    <div class="card"><div class="panel-h"><h3>Crews &amp; Equipment for this Estimate</h3><span class="spacer"></span><button class="btn sm sec" id="jrReset">Reset from catalog</button><select class="sel" id="jrAddOp" style="padding:5px 8px"><option value="">+ Add operation…</option>${S.ops.filter(o=>o.active&&!jobOp(o.id)).map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select></div>
+      <div class="panel-b" id="jrOps"></div></div></div>`;
+  $('#jBody').querySelector('.form').onchange=async e=>{ const el=e.target, k=el.dataset.jr; if(!k) return; let v=el.value;
+    if(k==='round_mode'||k==='notes'){ v=v.trim()||(k==='round_mode'?'auto':null); }
+    else { v=parseNum(v); if(v==null) return flash(el,false); if(el.dataset.pct) v=v/100; }
+    const ok=await saveJob({[k]:v}); flash(el,ok); if(el.dataset.pct) el.value=num(v*100,4)+'%'; if(k==='labor_rate') el.value=money(v); refreshTotals(); };
+  $('#jrReset').onclick=async ()=>{ if(!confirm('Replace this estimate\'s crews and equipment rates with the current catalog values?')) return; await saveJob({ops:snapshotOps()}); renderJobRates(); refreshTotals(); };
+  $('#jrAddOp').onchange=async e=>{ if(!e.target.value) return; await ensureJobOps([e.target.value]); renderJobRates(); refreshTotals(); };
+  renderJobOps();
+}
+function renderJobOps(){
+  const box=$('#jrOps'); const ops=S.job.ops;
+  box.innerHTML = ops.map((o,oi)=>`<div class="card" style="margin-bottom:12px" data-oi="${oi}">
+    <div class="panel-h" style="padding:8px 12px"><b style="flex:1">${esc(o.name)}</b>
+      <label class="chk">Crew <input class="sel num" style="width:70px;padding:4px 6px" data-o="crew" value="${num(o.crew,2)}"></label>
+      <label class="chk">Hrs/day <input class="sel num" style="width:70px;padding:4px 6px" data-o="hpd" value="${num(o.hpd,2)}"></label>
+      <button class="icon-btn" data-act="rmop" title="Remove from this estimate">✕</button></div>
+    <table class="grid"><thead><tr><th>Equipment</th><th class="r" style="width:80px">Qty</th><th class="r" style="width:110px">Rate/Hr</th><th style="width:40px"></th></tr></thead><tbody>
+      ${o.equip.map((e,ei)=>`<tr data-ei="${ei}"><td class="pad">${esc(e.name)}</td><td><input class="cell num" data-e="qty" value="${num(e.qty,2)}"></td><td><input class="cell num" data-e="rate" value="${money(e.rate)}"></td><td><button class="icon-btn" data-act="rmeq">✕</button></td></tr>`).join('')}
+      <tr><td colspan="4" class="pad"><select class="sel" data-act="addeq" style="padding:4px 8px"><option value="">+ Add equipment…</option>${S.equipment.filter(e=>e.active).map(e=>`<option value="${e.id}">${esc(e.name)} (${money(e.rate_per_hour)}/hr)</option>`).join('')}</select></td></tr>
+    </tbody></table></div>`).join('') || '<div class="hint">No operations. Use “+ Add operation…”.</div>';
+  const commit=async ()=>{ await saveJob({ops:S.job.ops}); refreshTotals(); };
+  box.onchange=async e=>{ const card=e.target.closest('[data-oi]'); if(!card) return; const o=ops[+card.dataset.oi];
+    if(e.target.dataset.o){ const v=parseNum(e.target.value); if(!v) return flash(e.target,false); o[e.target.dataset.o]=v; await commit(); flash(e.target,true); }
+    else if(e.target.dataset.e){ const eq=o.equip[+e.target.closest('tr').dataset.ei]; const v=parseNum(e.target.value); if(v==null) return flash(e.target,false); eq[e.target.dataset.e]=v; await commit(); flash(e.target,true); if(e.target.dataset.e==='rate') e.target.value=money(v); }
+    else if(e.target.dataset.act==='addeq' && e.target.value){ const eq=S.equipment.find(x=>x.id===e.target.value); o.equip.push({equipment_id:eq.id,name:eq.name,qty:1,rate:Number(eq.rate_per_hour)}); await commit(); renderJobOps(); } };
+  box.onclick=async e=>{ const b=e.target.closest('button[data-act]'); if(!b) return; const card=b.closest('[data-oi]'), oi=+card.dataset.oi;
+    if(b.dataset.act==='rmeq'){ ops[oi].equip.splice(+b.closest('tr').dataset.ei,1); }
+    if(b.dataset.act==='rmop'){ if(!confirm(`Remove ${ops[oi].name} from this estimate? Lines using it will have no equipment.`)) return; ops.splice(oi,1); }
+    await commit(); renderJobRates(); };
+}
+
+/* ---------- Proposal tab ---------- */
+function propDefaults(){ const C=S.company, J=S.job;
+  return { to:J.owner||'', attn:'', address:'', project:J.name, location:J.location||'', number:[J.job_number,J.revision].filter(Boolean).join(' '), date:new Date().toISOString().slice(0,10),
+    addenda:'', intro:C.intro||'', inclusions:C.inclusions||'', exclusions:C.exclusions||'', terms:C.terms||'', validity:C.validity_days||30,
+    show_unit:true, signer_name:C.signer_name||'', signer_title:C.signer_title||'' }; }
+function getProp(){ return {...propDefaults(), ...(S.job.proposal||{})}; }
+function renderProposal(){
+  const P=getProp();
+  const f=(k,l,type,cls)=>`<div class="fld ${cls||''}"><label>${l}</label>${type==='ta'?`<textarea data-p="${k}" rows="5">${esc(P[k])}</textarea>`:`<input data-p="${k}" type="${type||'text'}" value="${esc(P[k])}">`}</div>`;
+  $('#jBody').innerHTML = `<div class="two">
+    <div class="card"><div class="panel-h"><h3>Proposal Details</h3><span class="spacer"></span><button class="btn sm sec" id="prReset">Reset wording to company defaults</button></div><div class="panel-b"><div class="form">
+      ${f('to','To (Owner / GC)')}${f('attn','Attention')}${f('address','Address','text','full')}${f('project','Project')}${f('location','Location')}
+      ${f('number','Proposal #')}${f('date','Proposal Date','date')}${f('addenda','Addenda Acknowledged','text','full')}
+      ${f('intro','Opening Line','ta','full')}${f('inclusions','Inclusions (one per line)','ta')}${f('exclusions','Exclusions (one per line)','ta')}
+      ${f('terms','Terms & Notes (one per line)','ta','full')}${f('validity','Valid for (days)','number')}<div></div>${f('signer_name','Submitted by')}${f('signer_title','Title')}
+    </div></div></div>
+    <div class="card"><div class="panel-h"><h3>Bid Items on the Proposal</h3><span class="spacer"></span><label class="chk"><input type="checkbox" id="prShowUnit" ${P.show_unit?'checked':''}> Show qty &amp; unit prices</label></div>
+      <div style="max-height:52vh;overflow:auto"><table class="grid"><thead><tr><th style="width:40px"></th><th style="width:90px">Item</th><th>Description</th><th class="r" style="width:130px">Amount</th></tr></thead><tbody id="prItems">
+      ${S.bis.map(b=>`<tr data-id="${b.id}"><td class="c"><input type="checkbox" ${b.in_proposal!==false?'checked':''}></td><td class="pad mono">${esc(b.item_no)}</td><td class="pad">${esc(b.description)}</td><td class="r pad num">${money(calcItem(b).amount)}</td></tr>`).join('')}</tbody></table></div>
+      <div class="panel-h" style="border-top:1px solid var(--line);border-bottom:0"><span class="hint" id="prTot"></span><span id="prWarn"></span><span class="spacer"></span><button class="btn sec" id="prPrev">Preview</button><button class="btn dark" id="prDl">Download PDF</button></div></div></div>`;
+  const updTot=()=>{ const t=S.bis.filter(b=>b.in_proposal!==false).reduce((s,b)=>s+calcItem(b).amount,0); $('#prTot').innerHTML=`Proposal total: <b class="num">${money(t)}</b>`; const z=S.bis.filter(b=>b.in_proposal!==false && !calcItem(b).amount).length; $('#prWarn').innerHTML=z?`<span class="tag warn">${z} item${z>1?'s':''} at $0 — no backup yet</span>`:''; }; updTot();
+  $('#jBody').querySelector('.form').onchange=async e=>{ const k=e.target.dataset.p; if(!k) return; const p={...(S.job.proposal||{}), [k]: k==='validity'?parseNum(e.target.value):e.target.value};
+    const ok=await saveJob({proposal:p}); flash(e.target,ok); };
+  $('#prShowUnit').onchange=e=>saveJob({proposal:{...(S.job.proposal||{}), show_unit:e.target.checked}});
+  $('#prItems').onchange=async e=>{ const id=e.target.closest('tr').dataset.id; await saveBI(id,{in_proposal:e.target.checked}); updTot(); };
+  $('#prReset').onclick=async ()=>{ const C=S.company; const p={...(S.job.proposal||{}), intro:C.intro||'', inclusions:C.inclusions||'', exclusions:C.exclusions||'', terms:C.terms||'', validity:C.validity_days||30, signer_name:C.signer_name||'', signer_title:C.signer_title||''};
+    await saveJob({proposal:p}); renderProposal(); };
+  $('#prPrev').onclick=()=>{ const doc=buildProposal(); if(!doc) return; const url=doc.output('bloburl');
+    modal(`<div class="modal-h"><h3>Proposal Preview</h3><button class="btn sm dark" id="pvDl">Download PDF</button><button class="icon-btn" data-close>✕</button></div><iframe src="${url}" style="width:100%;height:78vh;border:0;border-radius:0 0 12px 12px"></iframe>`,'full');
+    $('#pvDl').onclick=()=>doc.save(proposalFileName()); };
+  $('#prDl').onclick=()=>{ const doc=buildProposal(); if(doc) doc.save(proposalFileName()); };
+}
+function proposalFileName(){ const J=S.job; return `Proposal - ${[J.job_number,J.name,J.revision].filter(Boolean).join(' ').replace(/[\\/:*?"<>|]/g,'')}.pdf`; }
+function buildProposal(){
+  if(!window.jspdf){ toast('PDF library did not load — check your connection',true); return null; }
+  const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'pt',format:'letter'});
+  const C=S.company, J=S.job, P=getProp(); const W=612, M=48; let y=44;
+  const NAVY=[15,31,51], ACC=[242,165,22], MUT=[106,119,137];
+  // header
+  let logoW=0;
+  if(C.logo){ try{ const p=doc.getImageProperties(C.logo); const h=52, w=Math.min(190, p.width*h/p.height); doc.addImage(C.logo, M, y-6, w, w*p.height/p.width); logoW=w; }catch(e){} }
+  doc.setTextColor(...NAVY); doc.setFont('helvetica','bold'); doc.setFontSize(logoW?12:18);
+  if(!logoW) doc.text(C.name||'', M, y+14);
+  const rx=W-M; let ry=y; doc.setFontSize(11); if(logoW) { doc.text(C.name||'', rx, ry+4, {align:'right'}); ry+=16; } else ry+=4;
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...MUT);
+  [ ...(C.address||'').split('\n'), [C.phone,C.email].filter(Boolean).join('  ·  '), C.website, C.license?('License '+C.license):'' ].filter(s=>s&&s.trim()).forEach(s=>{ doc.text(s.trim(), rx, ry+(logoW?0:0), {align:'right'}); ry+=11; });
+  y=Math.max(y+56, ry+8);
+  doc.setDrawColor(...ACC); doc.setLineWidth(2.5); doc.line(M,y,W-M,y); y+=28;
+  doc.setTextColor(...NAVY); doc.setFont('helvetica','bold'); doc.setFontSize(20); doc.text('PROPOSAL', M, y);
+  doc.setFontSize(9.5); doc.setFont('helvetica','normal'); doc.setTextColor(...MUT);
+  const pd=P.date?new Date(P.date+'T12:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}):'';
+  doc.text([P.number?('Proposal # '+P.number):'', pd].filter(Boolean).join('    '), W-M, y, {align:'right'}); y+=16;
+  // info block
+  const L=[['To',P.to],['Attention',P.attn],['Address',P.address]].filter(r=>r[1]);
+  const R=[['Project',P.project],['Location',P.location],['Bid Date',J.bid_date?new Date(J.bid_date+'T12:00').toLocaleDateString('en-US'):''],['Addenda',P.addenda]].filter(r=>r[1]);
+  const rows=[]; for(let i=0;i<Math.max(L.length,R.length);i++) rows.push([L[i]?.[0]||'',L[i]?.[1]||'',R[i]?.[0]||'',R[i]?.[1]||'']);
+  doc.autoTable({ startY:y, body:rows, theme:'plain', margin:{left:M,right:M}, styles:{fontSize:9.5,cellPadding:{top:2.5,bottom:2.5,left:0,right:8},textColor:[27,37,51]},
+    columnStyles:{0:{fontStyle:'bold',textColor:MUT,cellWidth:62},1:{cellWidth:196},2:{fontStyle:'bold',textColor:MUT,cellWidth:62},3:{}} });
+  y=doc.lastAutoTable.finalY+14;
+  if(P.intro){ doc.setFontSize(10); doc.setTextColor(27,37,51); const t=doc.splitTextToSize(P.intro, W-2*M); doc.text(t, M, y); y+=t.length*13+6; }
+  // items
+  const items=S.bis.filter(b=>b.in_proposal!==false); const showU=P.show_unit!==false;
+  const total=items.reduce((s,b)=>s+calcItem(b).amount,0);
+  const head=showU?[['Item','Description','Qty','Unit','Unit Price','Amount']]:[['Item','Description','Amount']];
+  const body=items.map(b=>{ const c=calcItem(b); return showU?[b.item_no||'',b.description,num(b.qty,2),b.unit||'',money(c.unit),money(c.amount)]:[b.item_no||'',b.description,money(c.amount)]; });
+  doc.autoTable({ startY:y, head, body, foot:[showU?[{content:'TOTAL',colSpan:5,styles:{halign:'right'}},money(total)]:[{content:'TOTAL',colSpan:2,styles:{halign:'right'}},money(total)]],
+    margin:{left:M,right:M,bottom:60}, theme:'striped', styles:{fontSize:9,cellPadding:5,textColor:[27,37,51],lineColor:[225,230,238]},
+    headStyles:{fillColor:NAVY,textColor:255,fontStyle:'bold'}, footStyles:{fillColor:[255,243,214],textColor:NAVY,fontStyle:'bold',fontSize:10.5}, alternateRowStyles:{fillColor:[248,250,252]},
+    columnStyles: showU ? {0:{cellWidth:56},2:{halign:'right',cellWidth:56},3:{cellWidth:38},4:{halign:'right',cellWidth:72},5:{halign:'right',cellWidth:84}} : {0:{cellWidth:60},2:{halign:'right',cellWidth:100}},
+    didParseCell:d=>{ if(d.section==='head' && ((showU&&d.column.index>=4)||(showU&&d.column.index===2)||(!showU&&d.column.index===2))) d.cell.styles.halign='right'; } });
+  y=doc.lastAutoTable.finalY+20;
+  const H=doc.internal.pageSize.getHeight();
+  const need=h=>{ if(y+h>H-60){ doc.addPage(); y=50; } };
+  const section=(title, text)=>{ const lines=(text||'').split('\n').map(s=>s.trim()).filter(Boolean); if(!lines.length) return;
+    need(30); doc.setFont('helvetica','bold'); doc.setFontSize(10.5); doc.setTextColor(...NAVY); doc.text(title.toUpperCase(), M, y); y+=5; doc.setDrawColor(...ACC); doc.setLineWidth(1); doc.line(M,y,M+40,y); y+=13;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(27,37,51);
+    lines.forEach(s=>{ const t=doc.splitTextToSize(s.replace(/^[-•*]\s*/,''), W-2*M-14); need(t.length*12+2); doc.text('•', M+2, y); doc.text(t, M+14, y); y+=t.length*12+3; }); y+=10; };
+  section('Inclusions', P.inclusions); section('Exclusions', P.exclusions); section('Terms & Notes', P.terms);
+  if(P.validity){ need(20); doc.setFont('helvetica','italic'); doc.setFontSize(9.5); doc.setTextColor(...MUT); doc.text(`This proposal is valid for ${P.validity} days from the proposal date.`, M, y); y+=24; }
+  // signatures
+  need(110); doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(...NAVY);
+  const cx=W/2+10; doc.text('SUBMITTED BY', M, y); doc.text('ACCEPTED BY', cx, y); y+=34;
+  doc.setDrawColor(150); doc.setLineWidth(.6); doc.line(M,y,M+220,y); doc.line(cx,y,W-M,y); y+=12;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(27,37,51);
+  doc.text([P.signer_name,P.signer_title].filter(Boolean).join(', ')||'Signature', M, y); doc.text('Signature', cx, y); y+=12;
+  doc.setTextColor(...MUT); doc.text(C.name||'', M, y); y+=28;
+  doc.setDrawColor(150); doc.line(cx,y-16,cx+150,y-16); doc.line(cx+165,y-16,W-M,y-16); doc.text('Printed Name / Title', cx, y-4); doc.text('Date', cx+165, y-4);
+  // footer
+  const n=doc.getNumberOfPages(); for(let i=1;i<=n;i++){ doc.setPage(i); doc.setFontSize(8); doc.setTextColor(...MUT); doc.text(`${C.name||''}  ·  ${P.project||''}`, M, H-28); doc.text(`Page ${i} of ${n}`, W-M, H-28, {align:'right'}); }
+  return doc;
+}
+
+/* ---------- Owner bid item import ---------- */
+function openBidImport(){
+  modal(`<div class="modal-h"><h3>Import Bid Items from Excel</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b">
+      <p class="hint" style="margin-top:0">Pick the owner's bid schedule (or one of your existing bid sheets). The app finds the header row and the Item / Description / Quantity / Unit columns. Check them, then import.</p>
+      <div class="drop" id="biDrop">Drop the Excel file here or <label style="color:var(--blue);cursor:pointer;text-decoration:underline">browse<input type="file" id="biFile" accept=".xlsx,.xls,.xlsm,.csv" hidden></label></div>
+      <div id="biMap"></div>
+    </div>
+    <div class="modal-f" id="biFoot" style="display:none">
+      <label class="chk" style="margin-right:auto"><input type="radio" name="biMode" value="add" checked> Add to existing items <input type="radio" name="biMode" value="replace" style="margin-left:12px"> Replace all bid items</label>
+      <label class="chk"><input type="checkbox" id="biAuto" checked> Auto-build backup from linked master assemblies</label>
+      <button class="btn sec" data-close>Cancel</button><button class="btn" id="biGo">Import</button></div>`, 'wide');
+  const drop=$('#biDrop');
+  ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+  ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+  drop.addEventListener('drop',e=>{ if(e.dataTransfer.files[0]) readBidFile(e.dataTransfer.files[0]); });
+  $('#biFile').onchange=e=>{ if(e.target.files[0]) readBidFile(e.target.files[0]); };
+}
+function readBidFile(file){
+  const rd=new FileReader();
+  rd.onload=ev=>{ let wb; try{ wb=XLSX.read(ev.target.result,{type:'array'}); }catch(e){ return toast('Could not read that file',true); }
+    S.bimp={wb, name:file.name}; $('#biDrop').innerHTML=`<b>${esc(file.name)}</b> <span class="hint">— drop another file to replace</span>`;
+    const pref=wb.SheetNames.find(n=>/bid|schedule|summary|proposal/i.test(n))||wb.SheetNames[0]; biSheet(pref); };
+  rd.readAsArrayBuffer(file);
+}
+function biSheet(name){
+  const ws=S.bimp.wb.Sheets[name]; const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+  // find header row
+  let best=-1, bestScore=0;
+  aoa.slice(0,40).forEach((row,ri)=>{ const t=row.map(c=>String(c).toLowerCase()); let s=0;
+    if(t.some(c=>/qty|quant/.test(c))) s+=2; if(t.some(c=>/^units?$|^uom$|^u\/m$/.test(c.trim()))) s+=2; if(t.some(c=>/item|bid/.test(c))) s+=1; if(t.some(c=>/desc/.test(c))) s+=1;
+    if(s>bestScore){ bestScore=s; best=ri; } });
+  const hdr = best>=0 ? aoa[best].map(c=>String(c).trim()) : [];
+  const ncol=Math.max(...aoa.slice(0,60).map(r=>r.length),0);
+  const find=(re,excl)=>hdr.findIndex((h,i)=>re.test(h.toLowerCase()) && !(excl||[]).includes(i));
+  let cNo=find(/bid\s*item|item\s*(no|#|num)|^no\.?$|^item$/); let cDesc=find(/desc/); if(cDesc<0) cDesc=find(/^item$|name|^item\b/,[cNo]);
+  if(cDesc===cNo){ cDesc=find(/item|name/,[cNo]); }
+  const cQty=find(/qty|quant/), cUnit=find(/^units?$|^uom$|^u\/m$|^unit\b(?!.*price)/);
+  S.bimp.sheet=name; S.bimp.aoa=aoa; S.bimp.hdrRow=best<0?0:best; S.bimp.map={no:cNo,desc:cDesc,qty:cQty,unit:cUnit};
+  const colOpts=(sel)=>`<option value="-1">— none —</option>`+Array.from({length:ncol},(_,i)=>`<option value="${i}" ${i===sel?'selected':''}>${XLSX.utils.encode_col(i)}${hdr[i]?' · '+esc(hdr[i].slice(0,30)):''}</option>`).join('');
+  $('#biMap').innerHTML = `<div class="form3" style="margin-top:14px">
+      <div class="fld"><label>Sheet</label><select id="bmSheet">${S.bimp.wb.SheetNames.map(n=>`<option ${n===name?'selected':''}>${esc(n)}</option>`).join('')}</select></div>
+      <div class="fld"><label>Header row</label><input id="bmHdr" type="number" min="0" value="${S.bimp.hdrRow+1}"></div><div></div>
+      <div class="fld"><label>Bid Item # column</label><select data-m="no">${colOpts(cNo)}</select></div>
+      <div class="fld"><label>Description column</label><select data-m="desc">${colOpts(cDesc)}</select></div>
+      <div class="fld"><label>Quantity column</label><select data-m="qty">${colOpts(cQty)}</select></div>
+      <div class="fld"><label>Unit column</label><select data-m="unit">${colOpts(cUnit)}</select></div>
+    </div><div id="bmPrev" style="margin-top:12px"></div>`;
+  $('#bmSheet').onchange=e=>biSheet(e.target.value);
+  $('#bmHdr').onchange=e=>{ S.bimp.hdrRow=Math.max(0,(+e.target.value||1)-1); biPreview(); };
+  $('#biMap').querySelectorAll('[data-m]').forEach(s=>s.onchange=()=>{ S.bimp.map[s.dataset.m]=+s.value; biPreview(); });
+  $('#biFoot').style.display='flex'; $('#biGo').onclick=applyBidImport;
+  biPreview();
+}
+function biRows(){
+  const {aoa,hdrRow,map}=S.bimp; const g=(r,c)=>c>=0?String(r[c]??'').trim():'';
+  return aoa.slice(hdrRow+1).map(r=>({ item_no:g(r,map.no).replace(/\.+$/,''), description:g(r,map.desc), qty:parseNum(g(r,map.qty)), unit:g(r,map.unit).toLowerCase()||'ea' }))
+    .filter(r=>r.description && r.qty!=null && !/^total/i.test(r.description) && !/total/i.test(r.item_no));
+}
+function biPreview(){
+  const rows=biRows(); S.bimp.rows=rows;
+  const linked=r=>S.assemblies.filter(a=>(a.bid_item_codes||'').split(',').map(normCode).filter(Boolean).includes(normCode(r.item_no)));
+  $('#bmPrev').innerHTML = `<div class="hint" style="margin-bottom:6px"><b>${rows.length}</b> bid items found.</div><div class="card" style="max-height:38vh;overflow:auto"><table class="grid"><thead><tr><th style="width:100px">Bid Item</th><th>Description</th><th class="r" style="width:110px">Qty</th><th style="width:60px">Unit</th><th>Linked assemblies</th></tr></thead><tbody>
+    ${rows.map(r=>{ const la=linked(r); return `<tr><td class="pad mono">${esc(r.item_no)}</td><td class="pad">${esc(r.description)}</td><td class="r pad num">${num(r.qty,4)}</td><td class="pad">${esc(r.unit)}</td><td class="pad">${la.map(a=>`<span class="tag ok">${esc(a.name)}</span>`).join(' ')}</td></tr>`; }).join('') || '<tr><td colspan="5" class="empty">No rows — check the header row and column choices.</td></tr>'}
+  </tbody></table></div>`;
+}
+async function applyBidImport(){
+  const rows=S.bimp?.rows||[]; if(!rows.length) return toast('Nothing to import',true);
+  const replace=document.querySelector('input[name=biMode]:checked').value==='replace', auto=$('#biAuto').checked;
+  if(replace && S.bis.length && !confirm(`Replace all ${S.bis.length} existing bid items (and their backup)?`)) return;
+  $('#biGo').disabled=true; $('#biGo').textContent='Importing…';
+  if(replace){ if(await dbErr(await sb.from('bid_items').delete().eq('job_id',S.job.id),'Replace')) return; S.bis=[]; S.bls=[]; }
+  let s=Math.max(0,...S.bis.map(b=>b.sort||0));
+  const recs=rows.map(r=>({id:uuid(), job_id:S.job.id, item_no:r.item_no||null, description:r.description, qty:r.qty, unit:r.unit, sort:++s}));
+  if(await dbErr(await sb.from('bid_items').insert(recs),'Import')) return;
+  S.bis.push(...recs.map(r=>({...r, manual_unit_price:null, day_overrides:{}, in_proposal:true})));
+  let built=0;
+  if(auto){ const lines=[];
+    recs.forEach(b=>{ const la=S.assemblies.filter(a=>a.active!==false && (a.bid_item_codes||'').split(',').map(normCode).filter(Boolean).includes(normCode(b.item_no)));
+      let so=0; la.forEach(a=>{ S.lines.filter(l=>l.assembly_id===a.id && !l.optional).sort((x,y)=>(x.sort||0)-(y.sort||0)).forEach(p=>{ const i=itemById(p.item_id); if(!i) return;
+        lines.push({id:uuid(), bid_item_id:b.id, sort:++so, ...lineFromItem(i, Number(p.qty_per), 'per', a.name, p.cost_code)}); }); if(la.length) built++; }); });
+    for(let i=0;i<lines.length;i+=500){ if(await dbErr(await sb.from('bid_lines').insert(lines.slice(i,i+500)),'Build')) break; }
+    S.bls.push(...lines); await ensureJobOps(lines.map(l=>l.operation_id)); }
+  closeModal(); S.jobTab='sheet'; renderJob(); refreshTotals();
+  toast(`Imported ${recs.length} bid items${auto?` · ${built} built from assemblies`:''}`);
+}
+
+/* ---------- Excel bid sheet export ---------- */
+function exportBidSheets(){
+  const J=S.job, wb=XLSX.utils.book_new(); const t=jobTotals();
+  const sum=[[J.name],[[J.job_number,J.revision].filter(Boolean).join(' · ')],[],['Bid Item','Item','Approx. Quantity','Unit','Price Per Unit','Amount']];
+  S.bis.forEach(b=>{ const c=calcItem(b); sum.push([b.item_no||'',b.description,Number(b.qty),b.unit||'',c.unit,c.amount]); });
+  sum.push([],['','TOTAL AMOUNT OF PROPOSAL','','','',t.amount]);
+  const ws=XLSX.utils.aoa_to_sheet(sum); ws['!cols']=[{wch:12},{wch:60},{wch:16},{wch:7},{wch:14},{wch:16}];
+  fmtCols(ws,['E','F'],'$#,##0.00',4); XLSX.utils.book_append_sheet(wb,ws,'Bid Sheet');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['PERCENT ON MATERIAL',J.material_markup],['TAX ON MATERIAL',J.tax_rate],['LABOR RATE',J.labor_rate],['PERCENT ON LABOR',J.labor_markup],['PERCENT ON EQUIPMENT',J.equipment_markup]]),'PERCENTS');
+  const used=new Set(['Bid Sheet','PERCENTS']);
+  S.bis.forEach((b,ix)=>{ const c=calcItem(b); const ls=linesOf(b.id);
+    const a=[[b.item_no||'', b.description],['Qty', Number(b.qty), b.unit||''],[],['Cost Code','Material','Quantity','Unit','Unit Price','Extension','Labor Hrs/Unit','Labor Hrs','Operation','Vendor']];
+    ls.forEach(l=>{ const tq=lineTQ(l,b.qty); a.push([l.cost_code||'', l.description, tq, l.unit||'', Number(l.unit_price), tq*Number(l.unit_price), Number(l.labor_hours), tq*Number(l.labor_hours), (jobOp(l.operation_id)||{}).name||'', l.vendor||'']); });
+    a.push([],['','TOTAL MATERIAL COST','','','',c.mat,'',c.hrs],['','TAX ON MATERIAL',J.tax_rate,'','',c.tax],['','OVER HEAD/PROFIT',J.material_markup,'','',c.matOH],['','TOTAL MATERIAL','','','',c.matT],[],
+      ['','LABOR',J.labor_rate,'','',c.lab],['','OVER HEAD/PROFIT',J.labor_markup,'','',c.labOH],['','TOTAL LABOR','','','',c.labT],[],['','EQUIPMENT','Qty','Hrs/Day','Days','Cost/Hr','Extension']);
+    c.ops.forEach(o=>o.equip.forEach(e=>a.push(['',`${e.name} (${o.name})`,e.qty,o.hpd,o.days,e.rate,e.cost])));
+    a.push(['','TOTAL','','','','',c.eq],['','OVER HEAD/PROFIT',J.equipment_markup,'','','',c.eqOH],['','TOTAL EQUIPMENT','','','','',c.eqT],[],
+      ['','TOTAL MATERIAL','','','',c.matT],['','TOTAL LABOR','','','',c.labT],['','TOTAL EQUIPMENT','','','',c.eqT],['','TOTAL','','','',c.total],['','UNIT PRICE',Number(b.qty),'','',c.unit]);
+    const w=XLSX.utils.aoa_to_sheet(a); w['!cols']=[{wch:10},{wch:44},{wch:11},{wch:8},{wch:12},{wch:14},{wch:12},{wch:11},{wch:20},{wch:12}];
+    fmtCols(w,['E','F','G'],'$#,##0.00',4,['G']);
+    let nm=String(b.item_no||('Item '+(ix+1))).replace(/[\[\]:*?\/\\]/g,'-').slice(0,28)||('Item '+(ix+1)); let k=nm, n=2; while(used.has(k)) k=nm.slice(0,26)+' '+(n++); used.add(k);
+    XLSX.utils.book_append_sheet(wb,w,k); });
+  XLSX.writeFile(wb,`Bid Sheet - ${[J.job_number,J.name,J.revision].filter(Boolean).join(' ').replace(/[\\/:*?"<>|]/g,'')}.xlsx`);
+}
+function fmtCols(ws, cols, z, fromRow, skipNonMoney){ const r=XLSX.utils.decode_range(ws['!ref']); for(let R=fromRow;R<=r.e.r;R++) cols.forEach(C=>{ const c=ws[C+(R+1)]; if(c&&c.t==='n'&&!(skipNonMoney||[]).includes(C)) c.z=z; }); }
+
+/* =====================================================================
+   CATALOG — ITEMS
+   ===================================================================== */
+function filteredItems(){
+  const q=$('#iSearch').value.trim().toLowerCase(), cc=$('#iCode').value, inact=$('#iInactive').checked;
+  let rows = S.items.filter(i=>(inact||i.active) && (!cc||i.cost_code===cc) &&
+    (!q || [i.description,i.vendor,i.part_number,i.manufacturer,i.notes].some(v=>(v||'').toLowerCase().includes(q))));
+  const {k,d}=S.sort;
+  rows.sort((a,b)=>{ let x=a[k],y=b[k]; if(typeof x==='string'||typeof y==='string'){ return d*String(x||'').localeCompare(String(y||'')); } return d*((x||0)-(y||0)); });
+  return rows;
+}
+function itemRow(i){
+  const q=safeUrl(i.quote_url);
+  return `<tr data-id="${i.id}" class="${i.active?'':'inactive'}">
+    <td><input class="cell" data-f="description" value="${esc(i.description)}"></td>
+    <td><input class="cell" data-f="unit" list="unitList" value="${esc(i.unit)}"></td>
+    <td><select class="cell" data-f="cost_code">${codeOptions(i.cost_code,'—')}</select></td>
+    <td><select class="cell" data-f="operation_id">${opOptions(i.operation_id,'—')}</select></td>
+    <td><input class="cell num" data-f="unit_price" value="${money(i.unit_price)}"></td>
+    <td><input class="cell num" data-f="labor_hours" value="${num(i.labor_hours,4)}"></td>
+    <td><input class="cell" data-f="vendor" value="${esc(i.vendor)}"></td>
+    <td>${q?`<a class="qlink" href="${esc(q)}" target="_blank" rel="noopener">Open ↗</a>`:''}</td>
+    <td class="hint">${fdate(i.updated_at)}</td>
+    <td style="white-space:nowrap">${i.notes?`<span class="note-flag" title="${esc(i.notes)}">●</span>`:''}<button class="icon-btn" data-act="edit" title="Details, quote link &amp; history">⋯</button></td>
+  </tr>`;
+}
+function renderItems(){
+  const rows=filteredItems(), grp=$('#iGroup').checked;
+  let html='';
+  if(grp){
+    [...S.codes.map(c=>c.code), null].forEach(code=>{
+      const g=rows.filter(r=>(r.cost_code||null)===code); if(!g.length) return;
+      html+=`<tr class="group"><td colspan="10">${code?esc(code)+' – '+esc(codeName(code)):'No cost code'} <span class="hint" style="font-weight:400">(${g.length})</span></td></tr>`+g.map(itemRow).join('');
+    });
+  } else html=rows.map(itemRow).join('');
+  $('#iTable tbody').innerHTML = html || `<tr><td colspan="10" class="empty">No items match.</td></tr>`;
+  $('#iCount').textContent = `${rows.length} of ${S.items.length} items`;
+}
+['#iSearch','#iCode','#iGroup','#iInactive'].forEach(s=>$(s).addEventListener('input',renderItems));
+$('#iTable thead').addEventListener('click',e=>{ const th=e.target.closest('th[data-s]'); if(!th) return; const k=th.dataset.s; S.sort = {k, d: S.sort.k===k ? -S.sort.d : 1}; renderItems(); });
+$('#iTable tbody').addEventListener('change', async e=>{
+  const el=e.target.closest('.cell'); if(!el) return;
+  const id=el.closest('tr').dataset.id, f=el.dataset.f, item=itemById(id);
+  let v=el.value;
+  if(f==='unit_price'||f==='labor_hours'){ v=parseNum(v); if(v==null){ flash(el,false); toast('Enter a number',true); return; } }
+  else { v=v.trim(); if(f==='description'&&!v){ el.value=item.description; return; } if(v==='') v=null; }
+  const ok = await saveItem(id,{[f]:v});
+  flash(el,ok);
+  if(ok && f==='unit_price') el.value=money(v);
+  if(ok && f==='cost_code' && $('#iGroup').checked) renderItems();
+});
+$('#iTable tbody').addEventListener('keydown', e=>{
+  if(e.key==='Enter' && e.target.classList.contains('cell')){ e.preventDefault(); const tr=e.target.closest('tr'); let n=tr.nextElementSibling; while(n && !n.dataset.id) n=n.nextElementSibling; const nx=n&&n.querySelector(`[data-f="${e.target.dataset.f}"]`); if(nx) nx.focus(); else e.target.blur(); }
+});
+$('#iTable tbody').addEventListener('focusin', e=>{ const el=e.target; if(el.dataset && el.dataset.f==='unit_price'){ const it=itemById(el.closest('tr').dataset.id); el.value = it.unit_price ?? ''; el.select(); } });
+$('#iTable tbody').addEventListener('focusout', e=>{ const el=e.target; if(el.dataset && el.dataset.f==='unit_price'){ const it=itemById(el.closest('tr').dataset.id); setTimeout(()=>{ if(document.activeElement!==el) el.value=money(it.unit_price); },0); } });
+$('#iTable tbody').addEventListener('click', e=>{ const b=e.target.closest('[data-act="edit"]'); if(b) openItem(b.closest('tr').dataset.id); });
+
+async function saveItem(id, patch){
+  const { data, error } = await sb.from('catalog_items').update(patch).eq('id',id).select().single();
+  if(error){ toast('Save failed: '+error.message,true); return false; }
+  const ix=S.items.findIndex(i=>i.id===id); S.items[ix]=data; return true;
+}
+$('#iNew').onclick = ()=> openItem(null);
+async function openItem(id){
+  const i = id ? itemById(id) : { description:'', unit:'ea', cost_code:$('#iCode').value||'', unit_price:0, labor_hours:0, active:true };
+  let hist='';
+  if(id){
+    const { data } = await sb.from('price_history').select('*').eq('item_id',id).order('changed_at',{ascending:false}).limit(50);
+    hist = `<h4 style="margin:18px 0 8px">Price History</h4>
+      <div class="card" style="max-height:220px;overflow:auto"><table class="grid"><thead><tr><th>Date</th><th class="r">Price</th><th class="r">Labor Hrs</th><th>Vendor</th><th>By</th></tr></thead><tbody>
+      ${(data||[]).map(h=>`<tr><td class="hint pad">${fdt(h.changed_at)}</td><td class="r num pad">${h.old_price!=null?`<span class="hint">${money(h.old_price)} → </span>`:''}${money(h.new_price)}</td><td class="r num pad">${num(h.new_labor_hours,4)}</td><td class="pad">${esc(h.vendor)}</td><td class="hint pad">${esc(h.changed_by)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">No history</td></tr>'}
+      </tbody></table></div>`;
+  }
+  const usedIn = id ? S.lines.filter(l=>l.item_id===id).map(l=>(S.assemblies.find(a=>a.id===l.assembly_id)||{}).name).filter(Boolean) : [];
+  modal(`
+    <div class="modal-h"><h3>${id?'Edit Item':'New Item'}</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b">
+      <div class="form">
+        <div class="fld full"><label>Description</label><input id="fDesc" value="${esc(i.description)}"></div>
+        <div class="fld"><label>Unit</label><input id="fUnit" list="unitList" value="${esc(i.unit)}"></div>
+        <div class="fld"><label>Cost Code</label><select id="fCode">${codeOptions(i.cost_code,'—')}</select></div>
+        <div class="fld"><label>Unit Price ($)</label><input id="fPrice" class="num" value="${i.unit_price??0}"></div>
+        <div class="fld"><label>Labor Hours per Unit</label><input id="fLabor" class="num" value="${i.labor_hours??0}"></div>
+        <div class="fld"><label>Operation (crew &amp; equipment)</label><select id="fOp">${opOptions(i.operation_id,'—')}</select></div>
+        <div class="fld"><label>Vendor</label><input id="fVendor" value="${esc(i.vendor)}"></div>
+        <div class="fld"><label>Manufacturer</label><input id="fMfr" value="${esc(i.manufacturer)}"></div>
+        <div class="fld"><label>Part Number</label><input id="fPart" value="${esc(i.part_number)}"></div>
+        <div class="fld"><label>Status</label><select id="fActive"><option value="1" ${i.active?'selected':''}>Active</option><option value="0" ${!i.active?'selected':''}>Inactive</option></select></div>
+        <div class="fld full"><label>Quote Link</label><input id="fQuote" placeholder="https://… (SharePoint, Google Drive, Dropbox link to the quote)" value="${esc(i.quote_url)}"></div>
+        <div class="fld full"><label>Notes</label><textarea id="fNotes">${esc(i.notes)}</textarea></div>
+      </div>
+      ${usedIn.length?`<p class="hint" style="margin:12px 0 0">Used in: ${usedIn.map(esc).join(', ')}</p>`:''}
+      ${hist}
+    </div>
+    <div class="modal-f">
+      ${id?`<button class="btn danger" id="fDel" style="margin-right:auto">Delete</button><button class="btn sec" id="fDup">Duplicate</button>`:''}
+      <button class="btn sec" data-close>Cancel</button><button class="btn" id="fSave">Save</button>
+    </div>`, true);
+  $('#fSave').onclick = async ()=>{
+    const price=parseNum($('#fPrice').value), labor=parseNum($('#fLabor').value);
+    const q=$('#fQuote').value.trim();
+    if(!$('#fDesc').value.trim()) return toast('Description is required',true);
+    if(price==null||labor==null) return toast('Price and labor must be numbers',true);
+    if(q && !safeUrl(q)) return toast('Quote link must start with http:// or https://',true);
+    const rec = { description:$('#fDesc').value.trim(), unit:$('#fUnit').value.trim()||'ea', cost_code:$('#fCode').value||null, unit_price:price, labor_hours:labor, operation_id:$('#fOp').value||null,
+      vendor:$('#fVendor').value.trim()||null, manufacturer:$('#fMfr').value.trim()||null, part_number:$('#fPart').value.trim()||null,
+      quote_url:q||null, notes:$('#fNotes').value.trim()||null, active:$('#fActive').value==='1' };
+    if(id){ if(!await saveItem(id,rec)) return; }
+    else { const { data, error } = await sb.from('catalog_items').insert(rec).select().single(); if(error) return toast(error.message,true); S.items.push(data); }
+    closeModal(); renderItems(); toast('Saved');
+  };
+  if(id){
+    $('#fDup').onclick = async ()=>{ const {id:_,created_at,updated_at,updated_by,...rest}=i; const {data,error}=await sb.from('catalog_items').insert({...rest,description:rest.description+' (copy)'}).select().single(); if(error) return toast(error.message,true); S.items.push(data); closeModal(); renderItems(); openItem(data.id); };
+    $('#fDel').onclick = async ()=>{
+      if(usedIn.length) return toast('Used in an assembly — set it Inactive instead',true);
+      if(!confirm('Delete this item permanently? (Its price history will be deleted too. Estimates keep their copy.)')) return;
+      const {error}=await sb.from('catalog_items').delete().eq('id',id); if(error) return toast(error.message,true);
+      S.items=S.items.filter(x=>x.id!==id); closeModal(); renderItems(); toast('Deleted');
+    };
+  }
+  $('#fDesc').focus();
+}
+
+/* =====================================================================
+   CATALOG — ASSEMBLIES
+   ===================================================================== */
+function asmCalc(aid){
+  const ls=S.lines.filter(l=>l.assembly_id===aid);
+  let mat=0, hrs=0;
+  ls.forEach(l=>{ if(l.optional) return; const i=itemById(l.item_id); if(!i) return; mat+=l.qty_per*i.unit_price; hrs+=l.qty_per*i.labor_hours; });
+  const matLoaded = mat*(1+setting('tax_rate'))*(1+setting('material_markup'));
+  const labLoaded = hrs*setting('labor_rate')*(1+setting('labor_markup'));
+  return { n:ls.length, mat, hrs, matLoaded, labLoaded, total:matLoaded+labLoaded };
+}
+function renderAsmList(){
+  const q=$('#aSearch').value.trim().toLowerCase();
+  const list=S.assemblies.filter(a=>!q||a.name.toLowerCase().includes(q)||(a.bid_item_codes||'').includes(q));
+  $('#aList').innerHTML = list.map(a=>{ const c=asmCalc(a.id); return `<div class="it ${a.id===S.asmSel?'on':''}" data-id="${a.id}">
+    <div class="n">${esc(a.name)}</div><div class="m"><span>${c.n} parts</span><span class="num">${money(c.total)}/${esc(a.unit)}</span>${a.bid_item_codes?`<span class="mono">#${esc(a.bid_item_codes)}</span>`:''}</div></div>`; }).join('') || '<div class="empty">No assemblies</div>';
+}
+$('#aSearch').addEventListener('input',renderAsmList);
+$('#aList').addEventListener('click',e=>{ const it=e.target.closest('.it'); if(!it) return; S.asmSel=it.dataset.id; renderAsmList(); renderAsmDetail(); });
+$('#aNew').onclick = async ()=>{
+  const {data,error}=await sb.from('assemblies').insert({name:'New Assembly',unit:'ea'}).select().single();
+  if(error) return toast(error.message,true);
+  S.assemblies.push(data); S.asmSel=data.id; renderAsmList(); renderAsmDetail(); $('#aName').select();
+};
+function renderAsmDetail(){
+  const a=S.assemblies.find(x=>x.id===S.asmSel);
+  if(!a){ $('#aDetail').innerHTML='<div class="empty">Select an assembly</div>'; return; }
+  const ls=S.lines.filter(l=>l.assembly_id===a.id).sort((x,y)=>(x.sort||0)-(y.sort||0));
+  const c=asmCalc(a.id);
+  $('#aDetail').innerHTML = `
+    <div class="asm-head">
+      <div class="fld"><label>Assembly Name</label><input id="aName" value="${esc(a.name)}"></div>
+      <div class="fld"><label>Per</label><input id="aUnit" list="unitList" value="${esc(a.unit)}"></div>
+      <div class="fld"><label>Cost Code</label><select id="aCode">${codeOptions(a.cost_code,'—')}</select></div>
+      <div class="fld" style="grid-column:1/3"><label>Notes</label><input id="aNotes" value="${esc(a.notes)}"></div>
+      <div class="fld"><label>Linked owner bid item #s</label><input id="aCodes" class="mono" placeholder="e.g. 672.01, 672.02" value="${esc(a.bid_item_codes)}" title="When you import bid items with these numbers, this assembly's standard parts are added automatically"></div>
+    </div>
+    <div class="panel-h"><b>Parts per 1 ${esc(a.unit)}</b><span class="hint">Ticked = optional (left off unless you pick it on the job)</span><span class="spacer"></span>
+      <button class="btn sm sec" id="aDup">Duplicate</button><button class="btn sm danger" id="aDel">Delete</button><button class="btn sm" id="aAdd">+ Add Part</button></div>
+    <div style="overflow:auto"><table class="grid" id="alTable"><thead><tr>
+      <th>Item</th><th style="width:60px">Unit</th><th class="r" style="width:110px">Qty per</th><th style="width:170px">Cost Code</th><th class="c" style="width:80px">Optional</th>
+      <th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Material</th><th class="r" style="width:95px">Labor Hrs</th><th style="width:40px"></th></tr></thead>
+      <tbody>${ls.map(l=>{ const i=itemById(l.item_id)||{description:'(missing item)'}; return `<tr data-lid="${l.id}" class="${i.active===false?'inactive':''}">
+        <td class="pad">${esc(i.description)}</td><td class="hint pad">${esc(i.unit)}</td>
+        <td><input class="cell num" data-f="qty_per" value="${num(l.qty_per,6)}"></td>
+        <td><select class="cell" data-f="cost_code">${codeOptions(l.cost_code, i.cost_code?'Item default ('+i.cost_code+')':'—')}</select></td>
+        <td class="c"><input type="checkbox" data-f="optional" ${l.optional?'checked':''}></td>
+        <td class="r num pad">${money(i.unit_price)}</td><td class="r num pad">${money(l.qty_per*(i.unit_price||0))}</td>
+        <td class="r num pad">${num(l.qty_per*(i.labor_hours||0),4)}</td>
+        <td><button class="icon-btn" data-act="rm" title="Remove">✕</button></td></tr>`; }).join('') || '<tr><td colspan="9" class="empty">No parts yet — click “+ Add Part”.</td></tr>'}</tbody></table></div>
+    <div class="totals">
+      <div class="tot"><div class="l">Material cost</div><div class="v num">${money(c.mat)}</div></div>
+      <div class="tot"><div class="l">Labor hours</div><div class="v num">${num(c.hrs,3)}</div></div>
+      <div class="tot"><div class="l">Material w/ tax + OH/P</div><div class="v num">${money(c.matLoaded)}</div></div>
+      <div class="tot"><div class="l">Labor w/ OH/P</div><div class="v num">${money(c.labLoaded)}</div></div>
+      <div class="tot big"><div class="l">Total / ${esc(a.unit)} (std parts, excl. equip.)</div><div class="v num">${money(c.total)}</div></div>
+    </div>`;
+  const saveA = async patch=>{ const {data,error}=await sb.from('assemblies').update(patch).eq('id',a.id).select().single(); if(error) return toast(error.message,true); Object.assign(a,data); renderAsmList(); };
+  $('#aName').onchange = e=>{ const v=e.target.value.trim(); if(v) saveA({name:v}); };
+  $('#aUnit').onchange = e=>{ saveA({unit:e.target.value.trim()||'ea'}).then(renderAsmDetail); };
+  $('#aCode').onchange = e=> saveA({cost_code:e.target.value||null});
+  $('#aNotes').onchange = e=> saveA({notes:e.target.value.trim()||null});
+  $('#aCodes').onchange = e=> saveA({bid_item_codes:e.target.value.split(',').map(s=>s.trim()).filter(Boolean).join(', ')||null}).then(()=>flash(e.target,true));
+  $('#aAdd').onclick = ()=> pickItem(async item=>{
+    const {data,error}=await sb.from('assembly_items').insert({assembly_id:a.id,item_id:item.id,qty_per:1,sort:(ls.length?Math.max(...ls.map(l=>l.sort||0)):0)+1}).select().single();
+    if(error) return toast(error.message,true); S.lines.push(data); renderAsmDetail(); renderAsmList();
+    const inp=document.querySelector(`#alTable tr[data-lid="${data.id}"] [data-f="qty_per"]`); if(inp){ inp.focus(); inp.select(); }
+  });
+  $('#aDel').onclick = async ()=>{ if(!confirm(`Delete assembly “${a.name}”? (Estimates keep their copied lines.)`)) return; const {error}=await sb.from('assemblies').delete().eq('id',a.id); if(error) return toast(error.message,true);
+    S.assemblies=S.assemblies.filter(x=>x.id!==a.id); S.lines=S.lines.filter(l=>l.assembly_id!==a.id); S.asmSel=null; renderAsmList(); renderAsmDetail(); };
+  $('#aDup').onclick = async ()=>{ const {data,error}=await sb.from('assemblies').insert({name:a.name+' (copy)',unit:a.unit,cost_code:a.cost_code,notes:a.notes}).select().single(); if(error) return toast(error.message,true);
+    const rows=ls.map(l=>({assembly_id:data.id,item_id:l.item_id,qty_per:l.qty_per,cost_code:l.cost_code,sort:l.sort,optional:l.optional}));
+    if(rows.length){ const r=await sb.from('assembly_items').insert(rows).select(); if(r.error) return toast(r.error.message,true); S.lines.push(...r.data); }
+    S.assemblies.push(data); S.asmSel=data.id; renderAsmList(); renderAsmDetail(); toast('Duplicated'); };
+  const tb=$('#alTable tbody');
+  tb.onchange = async e=>{ const el=e.target; const f=el.dataset.f; if(!f) return; const lid=el.closest('tr').dataset.lid; let v;
+    if(f==='optional') v=el.checked; else if(f==='qty_per'){ v=parseNum(el.value); if(v==null) return flash(el,false); } else v=el.value||null;
+    const {data,error}=await sb.from('assembly_items').update({[f]:v}).eq('id',lid).select().single(); if(error){ flash(el,false); return toast(error.message,true); }
+    const ix=S.lines.findIndex(l=>l.id===lid); S.lines[ix]=data; renderAsmDetail(); renderAsmList(); };
+  tb.onclick = async e=>{ const b=e.target.closest('[data-act="rm"]'); if(!b) return; const lid=b.closest('tr').dataset.lid;
+    const {error}=await sb.from('assembly_items').delete().eq('id',lid); if(error) return toast(error.message,true); S.lines=S.lines.filter(l=>l.id!==lid); renderAsmDetail(); renderAsmList(); };
+}
+function pickItem(cb){
+  modal(`<div class="modal-h"><h3>Add Part to Assembly</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b"><div style="display:flex;gap:8px"><input class="search" id="pkQ" placeholder="Search items…" style="flex:1"><select class="sel" id="pkC">${codeOptions('','All cost codes')}</select></div><div class="pick-list" id="pkL"></div></div>`, true);
+  const draw=()=>{ const q=$('#pkQ').value.trim().toLowerCase(), c=$('#pkC').value;
+    $('#pkL').innerHTML = S.items.filter(i=>i.active&&(!c||i.cost_code===c)&&(!q||i.description.toLowerCase().includes(q)||(i.vendor||'').toLowerCase().includes(q))).sort((a,b)=>a.description.localeCompare(b.description)).slice(0,200)
+      .map(i=>`<div class="p" data-id="${i.id}"><span class="d">${esc(i.description)}</span><span class="c">${esc(i.cost_code||'')}</span><span class="c num">${money(i.unit_price)}/${esc(i.unit)}</span></div>`).join('') || '<div class="empty">No matches</div>'; };
+  $('#pkQ').oninput=draw; $('#pkC').onchange=draw; draw(); $('#pkQ').focus();
+  $('#pkL').onclick=e=>{ const p=e.target.closest('.p'); if(!p) return; closeModal(); cb(itemById(p.dataset.id)); };
+}
+
+/* =====================================================================
+   CATALOG — RATES, EQUIPMENT, OPERATIONS
+   ===================================================================== */
+function fmtSetting(s){ return s.kind==='percent' ? num(s.value*100,4)+'%' : s.kind==='money' ? money(s.value) : num(s.value,3); }
+function renderSettings(){
+  $('#sTable tbody').innerHTML = S.settings.map(s=>`<tr data-k="${esc(s.key)}"><td class="pad">${esc(s.label)}</td><td><input class="cell num" value="${fmtSetting(s)}"></td></tr>`).join('');
+}
+$('#sTable tbody').addEventListener('change', async e=>{
+  const el=e.target, k=el.closest('tr').dataset.k, s=S.settings.find(x=>x.key===k); let v=parseNum(el.value);
+  if(v==null){ flash(el,false); el.value=fmtSetting(s); return; }
+  if(s.kind==='percent') v=v/100;
+  const {error}=await sb.from('settings').update({value:v}).eq('key',k); if(error){ flash(el,false); return toast(error.message,true); }
+  s.value=v; el.value=fmtSetting(s); flash(el,true); renderAsmList(); if(S.asmSel) renderAsmDetail();
+});
+function renderEquip(){
+  const show=$('#eInactive').checked;
+  $('#eTable tbody').innerHTML = S.equipment.filter(e=>show||e.active).map(e=>`<tr data-id="${e.id}" class="${e.active?'':'inactive'}">
+    <td><input class="cell" data-f="name" value="${esc(e.name)}"></td>
+    <td><input class="cell num" data-f="rate_per_hour" value="${money(e.rate_per_hour)}"></td>
+    <td><input class="cell" data-f="notes" value="${esc(e.notes)}"></td>
+    <td><button class="icon-btn" data-act="tog" title="${e.active?'Set inactive':'Reactivate'}">${e.active?'⏸':'▶'}</button></td></tr>`).join('');
+}
+$('#eInactive').onchange=renderEquip;
+$('#eTable tbody').addEventListener('change', async e=>{
+  const el=e.target.closest('.cell'); if(!el) return; const id=el.closest('tr').dataset.id, f=el.dataset.f; let v=el.value.trim();
+  if(f==='rate_per_hour'){ v=parseNum(v); if(v==null) return flash(el,false); } else if(!v){ if(f==='name') return; v=null; }
+  const {data,error}=await sb.from('equipment').update({[f]:v}).eq('id',id).select().single(); if(error){ flash(el,false); return toast(error.message,true); }
+  const ix=S.equipment.findIndex(x=>x.id===id); S.equipment[ix]=data; if(f==='rate_per_hour') el.value=money(v); flash(el,true); renderOps();
+});
+$('#eTable tbody').addEventListener('click', async e=>{
+  const b=e.target.closest('[data-act="tog"]'); if(!b) return; const id=b.closest('tr').dataset.id, q=S.equipment.find(x=>x.id===id);
+  const {error}=await sb.from('equipment').update({active:!q.active}).eq('id',id); if(error) return toast(error.message,true); q.active=!q.active; renderEquip();
+});
+$('#eNew').onclick = async ()=>{ const {data,error}=await sb.from('equipment').insert({name:'New Equipment',rate_per_hour:0}).select().single(); if(error) return toast(error.message,true);
+  S.equipment.push(data); renderEquip(); const inp=document.querySelector(`#eTable tr[data-id="${data.id}"] [data-f="name"]`); inp.focus(); inp.select(); };
+
+function renderOps(){
+  $('#opsBox').innerHTML = S.ops.filter(o=>o.active).map(o=>{ const eq=S.opEq.filter(x=>x.operation_id===o.id); return `<div class="card" style="margin-bottom:12px" data-op="${o.id}">
+    <div class="panel-h" style="padding:8px 12px"><input class="cell" style="font-weight:600;flex:1" data-o="name" value="${esc(o.name)}">
+      <label class="chk">Crew <input class="sel num" style="width:70px;padding:4px 6px" data-o="crew_size" value="${num(o.crew_size,2)}"></label>
+      <label class="chk">Hrs/day <input class="sel num" style="width:70px;padding:4px 6px" data-o="hours_per_day" value="${num(o.hours_per_day,2)}"></label>
+      <span class="hint">${S.items.filter(i=>i.operation_id===o.id).length} items</span>
+      <button class="icon-btn" data-act="rmop" title="Remove operation">✕</button></div>
+    <table class="grid"><tbody>
+      ${eq.map(x=>{ const e=S.equipment.find(e=>e.id===x.equipment_id)||{}; return `<tr data-x="${x.id}"><td class="pad">${esc(e.name)}</td><td style="width:90px"><input class="cell num" data-x="qty" value="${num(x.qty,2)}" title="Qty"></td><td class="r pad num hint" style="width:110px">${money(e.rate_per_hour)}/hr</td><td style="width:40px"><button class="icon-btn" data-act="rmx">✕</button></td></tr>`; }).join('')}
+      <tr><td colspan="4" class="pad"><select class="sel" data-act="addx" style="padding:4px 8px"><option value="">+ Add equipment…</option>${S.equipment.filter(e=>e.active).map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></td></tr>
+    </tbody></table></div>`; }).join('') || '<div class="hint">No operations yet.</div>';
+}
+$('#opsBox').addEventListener('change', async e=>{
+  const card=e.target.closest('[data-op]'); if(!card) return; const o=S.ops.find(x=>x.id===card.dataset.op); const el=e.target;
+  if(el.dataset.o){ const f=el.dataset.o; let v = f==='name' ? el.value.trim() : parseNum(el.value); if(!v) return flash(el,false);
+    const {error}=await sb.from('operations').update({[f]:v}).eq('id',o.id); if(error) return toast(error.message,true); o[f]=v; flash(el,true); renderItems(); }
+  else if(el.dataset.x){ const xid=el.closest('tr').dataset.x; const v=parseNum(el.value); if(v==null) return flash(el,false);
+    const {error}=await sb.from('operation_equipment').update({qty:v}).eq('id',xid); if(error) return toast(error.message,true); S.opEq.find(x=>x.id===xid).qty=v; flash(el,true); }
+  else if(el.dataset.act==='addx' && el.value){ const {data,error}=await sb.from('operation_equipment').insert({operation_id:o.id,equipment_id:el.value,qty:1}).select().single(); if(error) return toast(error.message,true); S.opEq.push(data); renderOps(); }
+});
+$('#opsBox').addEventListener('click', async e=>{
+  const b=e.target.closest('button[data-act]'); if(!b) return; const id=b.closest('[data-op]').dataset.op;
+  if(b.dataset.act==='rmx'){ const xid=b.closest('tr').dataset.x; const {error}=await sb.from('operation_equipment').delete().eq('id',xid); if(error) return toast(error.message,true); S.opEq=S.opEq.filter(x=>x.id!==xid); renderOps(); }
+  if(b.dataset.act==='rmop'){ const o=S.ops.find(x=>x.id===id); if(!confirm(`Remove operation “${o.name}”? Items using it will be set to no operation. Existing estimates keep their copy.`)) return;
+    const {error}=await sb.from('operations').update({active:false}).eq('id',id); if(error) return toast(error.message,true);
+    await sb.from('catalog_items').update({operation_id:null}).eq('operation_id',id); S.items.forEach(i=>{ if(i.operation_id===id) i.operation_id=null; }); o.active=false; renderOps(); renderItems(); }
+});
+$('#oNew').onclick=async ()=>{ const {data,error}=await sb.from('operations').insert({name:'New Operation',crew_size:2,hours_per_day:8,sort:S.ops.length+1}).select().single(); if(error) return toast(error.message,true);
+  S.ops.push(data); renderOps(); const inp=document.querySelector(`#opsBox [data-op="${data.id}"] [data-o="name"]`); inp.focus(); inp.select(); };
+
+/* =====================================================================
+   CATALOG — COST CODES
+   ===================================================================== */
+function renderCodes(){
+  $('#cTable tbody').innerHTML = S.codes.map(c=>`<tr data-c="${esc(c.code)}">
+    <td><input class="cell mono" data-f="code" value="${esc(c.code)}"></td>
+    <td><input class="cell" data-f="name" value="${esc(c.name)}"></td>
+    <td class="r hint pad">${S.items.filter(i=>i.cost_code===c.code).length}</td>
+    <td><button class="icon-btn" data-act="del" title="Delete">✕</button></td></tr>`).join('');
+}
+function refreshCodeSelects(){ $('#iCode').innerHTML=codeOptions($('#iCode').value,'All cost codes'); $('#rCode').innerHTML=codeOptions($('#rCode').value,'All cost codes'); renderItems(); }
+$('#cTable tbody').addEventListener('change', async e=>{
+  const el=e.target.closest('.cell'); if(!el) return; const old=el.closest('tr').dataset.c, f=el.dataset.f, v=el.value.trim(); if(!v) return;
+  const {error}=await sb.from('cost_codes').update({[f]:v}).eq('code',old); if(error){ flash(el,false); return toast(error.message,true); }
+  const c=S.codes.find(x=>x.code===old); c[f]=v;
+  if(f==='code'){ S.items.forEach(i=>{ if(i.cost_code===old) i.cost_code=v; }); S.assemblies.forEach(a=>{ if(a.cost_code===old) a.cost_code=v; }); S.lines.forEach(l=>{ if(l.cost_code===old) l.cost_code=v; }); el.closest('tr').dataset.c=v; }
+  flash(el,true); refreshCodeSelects();
+});
+$('#cTable tbody').addEventListener('click', async e=>{
+  const b=e.target.closest('[data-act="del"]'); if(!b) return; const code=b.closest('tr').dataset.c;
+  if(S.items.some(i=>i.cost_code===code)) return toast('Items still use this cost code',true);
+  if(!confirm('Delete cost code '+code+'?')) return;
+  const {error}=await sb.from('cost_codes').delete().eq('code',code); if(error) return toast(error.message,true);
+  S.codes=S.codes.filter(c=>c.code!==code); renderCodes(); refreshCodeSelects();
+});
+$('#cNew').onclick = ()=>{
+  modal(`<div class="modal-h"><h3>Add Cost Code</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b"><div class="form"><div class="fld"><label>Code</label><input id="ncC" placeholder="e.g. 7020"></div><div class="fld"><label>Name</label><input id="ncN"></div></div></div>
+    <div class="modal-f"><button class="btn sec" data-close>Cancel</button><button class="btn" id="ncS">Add</button></div>`);
+  $('#ncC').focus();
+  $('#ncS').onclick = async ()=>{ const code=$('#ncC').value.trim(), name=$('#ncN').value.trim(); if(!code||!name) return toast('Code and name required',true);
+    const {data,error}=await sb.from('cost_codes').insert({code,name,sort:S.codes.length+1}).select().single(); if(error) return toast(error.message,true);
+    S.codes.push(data); closeModal(); renderCodes(); refreshCodeSelects(); };
+};
+
+/* =====================================================================
+   COMPANY & PROPOSAL DEFAULTS
+   ===================================================================== */
+function renderCompany(){
+  const C=S.company; const f=(k,l,ta,cls,ph)=>`<div class="fld ${cls||''}"><label>${l}</label>${ta?`<textarea data-co="${k}" rows="${ta}" placeholder="${esc(ph||'')}">${esc(C[k])}</textarea>`:`<input data-co="${k}" value="${esc(C[k])}" placeholder="${esc(ph||'')}">`}</div>`;
+  $('#coForm1').innerHTML = `${f('name','Company Name','','full')}${f('address','Address',3,'full')}${f('phone','Phone')}${f('email','Email')}${f('license','License #')}${f('website','Website')}
+    <div class="fld full"><label>Logo (PNG or JPG)</label>${C.logo?`<img class="logo-prev" src="${C.logo}" alt="Logo">`:''}<input type="file" id="coLogo" accept="image/png,image/jpeg">${C.logo?' <button class="btn sm danger" id="coLogoRm" type="button">Remove logo</button>':''}</div>
+    ${f('signer_name','Default Signer')}${f('signer_title','Signer Title')}`;
+  $('#coForm2').innerHTML = `${f('intro','Opening Line',2,'full')}${f('inclusions','Standard Inclusions (one per line)',6,'full','e.g. Furnish and install items as listed above')}${f('exclusions','Standard Exclusions (one per line)',6,'full','e.g. Bonds, permits and fees unless listed')}${f('terms','Terms & Notes (one per line)',5,'full')}
+    <div class="fld"><label>Valid for (days)</label><input data-co="validity_days" type="number" value="${esc(C.validity_days)}"></div>`;
+  $('#coLogo').onchange=e=>{ const file=e.target.files[0]; if(!file) return; const img=new Image(); const rd=new FileReader();
+    rd.onload=()=>{ img.onload=()=>{ const max=600, s=Math.min(1,max/Math.max(img.width,img.height)); const cv=document.createElement('canvas'); cv.width=Math.round(img.width*s); cv.height=Math.round(img.height*s);
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height); S.company.logo=cv.toDataURL('image/png'); saveCompany(); }; img.src=rd.result; }; rd.readAsDataURL(file); };
+  const rm=$('#coLogoRm'); if(rm) rm.onclick=()=>{ S.company.logo=null; saveCompany(); };
+}
+async function saveCompany(){
+  document.querySelectorAll('[data-co]').forEach(el=>{ const k=el.dataset.co; S.company[k] = k==='validity_days' ? (parseInt(el.value)||30) : (el.value.trim()||null); });
+  const {id,updated_at,...rec}=S.company; const {error}=await sb.from('company_profile').update(rec).eq('id',1); if(error) return toast(error.message,true);
+  renderCompany(); toast('Saved');
+}
+$('#coSave').onclick=saveCompany;
+
+/* =====================================================================
+   PRICE HISTORY REPORT
+   ===================================================================== */
+async function runHistory(){
+  S.historyRan=true;
+  let q=sb.from('price_history').select('*').order('changed_at',{ascending:false}).limit(5000);
+  if($('#rChanges').checked) q=q.not('old_price','is',null);
+  if($('#rFrom').value) q=q.gte('changed_at',$('#rFrom').value);
+  if($('#rTo').value){ const d=new Date($('#rTo').value); d.setDate(d.getDate()+1); q=q.lt('changed_at',d.toISOString().slice(0,10)); }
+  if($('#rSearch').value.trim()) q=q.ilike('description','%'+$('#rSearch').value.trim()+'%');
+  const {data,error}=await q; if(error) return toast(error.message,true);
+  const cc=$('#rCode').value;
+  S.history=(data||[]).map(h=>{ const i=itemById(h.item_id)||{}; return {...h, cost_code:i.cost_code||'', unit:i.unit||'', cur_desc:i.description||h.description}; }).filter(h=>!cc||h.cost_code===cc);
+  $('#rTable tbody').innerHTML = S.history.map(h=>{
+    const pct = h.old_price ? (h.new_price-h.old_price)/h.old_price : null; const q=safeUrl(h.quote_url);
+    return `<tr><td class="hint pad">${fdt(h.changed_at)}</td><td class="pad">${esc(h.cur_desc)}</td><td class="hint pad">${esc(h.cost_code)}</td>
+      <td class="r num pad">${money(h.old_price)}</td><td class="r num pad">${money(h.new_price)}</td>
+      <td class="r num pad" style="color:${pct>0?'var(--bad)':pct<0?'var(--good)':'inherit'}">${pct==null?'<span class="tag new">New</span>':(pct>0?'+':'')+(pct*100).toFixed(1)+'%'}</td>
+      <td class="r num pad">${h.old_labor_hours!=null&&h.old_labor_hours!=h.new_labor_hours?`<span class="hint">${num(h.old_labor_hours,4)} → </span>`:''}${num(h.new_labor_hours,4)}</td>
+      <td class="pad">${esc(h.vendor)}</td><td class="pad">${q?`<a class="qlink" href="${esc(q)}" target="_blank" rel="noopener">Open ↗</a>`:''}</td><td class="hint pad">${esc(h.changed_by)}</td></tr>`; }).join('')
+    || `<tr><td colspan="10" class="empty">No price changes found${$('#rChanges').checked?' — uncheck “Changes only” to include the starting prices':''}.</td></tr>`;
+}
+$('#rRun').onclick=runHistory; $('#rChanges').onchange=runHistory; $('#rCode').onchange=runHistory;
+$('#rSearch').addEventListener('keydown',e=>{ if(e.key==='Enter') runHistory(); });
+$('#rExport').onclick=()=>{
+  if(!S.history.length) return toast('Run the report first',true);
+  const rows=S.history.map(h=>({ 'Date':new Date(h.changed_at), 'Item':h.cur_desc, 'Cost Code':h.cost_code, 'Unit':h.unit, 'Old Price':h.old_price, 'New Price':h.new_price,
+    'Change %':h.old_price?(h.new_price-h.old_price)/h.old_price:null, 'Old Labor Hrs':h.old_labor_hours, 'New Labor Hrs':h.new_labor_hours, 'Vendor':h.vendor, 'Quote Link':h.quote_url, 'Changed By':h.changed_by }));
+  const ws=XLSX.utils.json_to_sheet(rows,{cellDates:true}); ws['!cols']=[{wch:18},{wch:44},{wch:10},{wch:6},{wch:11},{wch:11},{wch:9},{wch:12},{wch:12},{wch:14},{wch:40},{wch:28}];
+  const r=XLSX.utils.decode_range(ws['!ref']); for(let R=1;R<=r.e.r;R++){ ['A','E','F','G'].forEach((C,ix)=>{ const c=ws[C+(R+1)]; if(c) c.z=['m/d/yyyy h:mm','$#,##0.00','$#,##0.00','0.0%'][ix]; }); }
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Price History'); XLSX.writeFile(wb,`MC4 Price History ${new Date().toISOString().slice(0,10)}.xlsx`);
+};
+
+/* =====================================================================
+   CATALOG EXPORT / IMPORT
+   ===================================================================== */
+const ITEM_COLS=['ID','Description','Unit','Cost Code','Operation','Unit Price','Labor Hrs/Unit','Vendor','Manufacturer','Part Number','Quote Link','Notes','Active'];
+function itemsSheet(list){
+  const ws=XLSX.utils.json_to_sheet(list.map(i=>({ 'ID':i.id,'Description':i.description,'Unit':i.unit,'Cost Code':i.cost_code||'','Operation':opName(i.operation_id),'Unit Price':Number(i.unit_price),'Labor Hrs/Unit':Number(i.labor_hours),
+    'Vendor':i.vendor||'','Manufacturer':i.manufacturer||'','Part Number':i.part_number||'','Quote Link':i.quote_url||'','Notes':i.notes||'','Active':i.active?'Yes':'No' })),{header:ITEM_COLS});
+  ws['!cols']=[{wch:38},{wch:46},{wch:6},{wch:10},{wch:20},{wch:11},{wch:13},{wch:12},{wch:14},{wch:14},{wch:40},{wch:40},{wch:7}];
+  const r=XLSX.utils.decode_range(ws['!ref']); for(let R=1;R<=r.e.r;R++){ const c=ws['F'+(R+1)]; if(c) c.z='$#,##0.00'; }
+  return ws;
+}
+$('#xAll').onclick=()=>{
+  const wb=XLSX.utils.book_new();
+  const sorted=[...S.items].sort((a,b)=>(a.cost_code||'').localeCompare(b.cost_code||'')||a.description.localeCompare(b.description));
+  XLSX.utils.book_append_sheet(wb,itemsSheet(sorted),'Items');
+  const al=[]; S.assemblies.forEach(a=>{ const c=asmCalc(a.id);
+    S.lines.filter(l=>l.assembly_id===a.id).sort((x,y)=>(x.sort||0)-(y.sort||0)).forEach(l=>{ const i=itemById(l.item_id)||{};
+      al.push({'Assembly':a.name,'Per':a.unit,'Linked Bid Items':a.bid_item_codes||'','Item':i.description,'Item Unit':i.unit,'Qty Per':Number(l.qty_per),'Optional':l.optional?'Yes':'','Cost Code':l.cost_code||i.cost_code||'','Unit Price':Number(i.unit_price||0),'Material':l.qty_per*(i.unit_price||0),'Labor Hrs':l.qty_per*(i.labor_hours||0)}); });
+    al.push({'Assembly':a.name+' — TOTAL (std parts) / '+a.unit,'Material':c.mat,'Labor Hrs':c.hrs}); al.push({}); });
+  const wsA=XLSX.utils.json_to_sheet(al); wsA['!cols']=[{wch:44},{wch:5},{wch:14},{wch:42},{wch:8},{wch:9},{wch:8},{wch:10},{wch:11},{wch:11},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,wsA,'Assemblies');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(S.equipment.map(e=>({'Equipment':e.name,'Rate / Hour':Number(e.rate_per_hour),'Notes':e.notes||'','Active':e.active?'Yes':'No'}))),'Equipment');
+  const opRows=[]; S.ops.filter(o=>o.active).forEach(o=>{ const eq=S.opEq.filter(x=>x.operation_id===o.id); if(!eq.length) opRows.push({'Operation':o.name,'Crew':Number(o.crew_size),'Hrs/Day':Number(o.hours_per_day)});
+    eq.forEach(x=>{ const e=S.equipment.find(e=>e.id===x.equipment_id)||{}; opRows.push({'Operation':o.name,'Crew':Number(o.crew_size),'Hrs/Day':Number(o.hours_per_day),'Equipment':e.name,'Qty':Number(x.qty),'Rate / Hour':Number(e.rate_per_hour||0)}); }); });
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(opRows),'Operations');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(S.settings.map(s=>({'Setting':s.label,'Value':Number(s.value),'Type':s.kind}))),'Rates');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(S.codes.map(c=>({'Code':c.code,'Name':c.name}))),'Cost Codes');
+  XLSX.writeFile(wb,`MC4 Catalog ${new Date().toISOString().slice(0,10)}.xlsx`);
+};
+$('#xTemplate').onclick=()=>{ const wb=XLSX.utils.book_new(); const ws=XLSX.utils.aoa_to_sheet([ITEM_COLS,['','Example: 2" PVC Sch-40 Conduit','lf','6000','Trenching & Conduit',1.25,0.005,'Vendor name','','','https://link-to-quote','','Yes']]);
+  ws['!cols']=itemsSheet([])['!cols']; XLSX.utils.book_append_sheet(wb,ws,'Items'); XLSX.writeFile(wb,'MC4 Item Import Template.xlsx'); };
+
+const drop=$('#drop');
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>{ if(e.dataTransfer.files[0]) readImport(e.dataTransfer.files[0]); });
+$('#fileIn').onchange=e=>{ if(e.target.files[0]) readImport(e.target.files[0]); e.target.value=''; };
+function readImport(file){
+  const rd=new FileReader();
+  rd.onload=ev=>{
+    const wb=XLSX.read(ev.target.result,{type:'array'});
+    const sh=wb.Sheets['Items']||wb.Sheets[wb.SheetNames[0]];
+    const raw=XLSX.utils.sheet_to_json(sh,{defval:''});
+    const norm=k=>String(k).toLowerCase().replace(/[^a-z]/g,'');
+    const pick=(r,...names)=>{ for(const k of Object.keys(r)){ if(names.includes(norm(k))) return r[k]; } return ''; };
+    const has=(r,...names)=>Object.keys(r).some(k=>names.includes(norm(k)));
+    const byId=new Map(S.items.map(i=>[i.id,i])), byKey=new Map(S.items.map(i=>[(i.description+'|'+i.unit).toLowerCase(),i]));
+    const opByName=new Map(S.ops.filter(o=>o.active).map(o=>[o.name.toLowerCase(),o.id]));
+    const codes=new Set(S.codes.map(c=>c.code)), newCodes=new Set();
+    const rows=[];
+    raw.forEach((r,ix)=>{
+      const desc=String(pick(r,'description','item')).trim(); if(!desc || /^example:/i.test(desc)) return;
+      const rec={ description:desc, unit:String(pick(r,'unit')).trim()||'ea', cost_code:String(pick(r,'costcode','code')).trim()||null,
+        unit_price:parseNum(pick(r,'unitprice','price')), labor_hours:parseNum(pick(r,'laborhrsunit','laborhours','labor','laborhrs')),
+        vendor:String(pick(r,'vendor')).trim()||null, manufacturer:String(pick(r,'manufacturer','mfr')).trim()||null, part_number:String(pick(r,'partnumber','part')).trim()||null,
+        quote_url:String(pick(r,'quotelink','quote','quoteurl')).trim()||null, notes:String(pick(r,'notes')).trim()||null };
+      const warn=[];
+      if(has(r,'operation')){ const on=String(pick(r,'operation')).trim(); if(!on) rec.operation_id=null; else if(opByName.has(on.toLowerCase())) rec.operation_id=opByName.get(on.toLowerCase()); else warn.push('unknown operation “'+on+'” (left unchanged)'); }
+      const act=String(pick(r,'active')).trim().toLowerCase(); if(act) rec.active=!['no','n','false','0','inactive'].includes(act);
+      if(rec.unit_price==null) rec.unit_price=0; if(rec.labor_hours==null) rec.labor_hours=0;
+      if(rec.quote_url && !safeUrl(rec.quote_url)){ warn.push('bad quote link (skipped)'); rec.quote_url=null; }
+      if(rec.cost_code && !codes.has(rec.cost_code)){ newCodes.add(rec.cost_code); warn.push('new cost code '+rec.cost_code); }
+      const id=String(pick(r,'id')).trim();
+      const ex = (id && byId.get(id)) || byKey.get((desc+'|'+rec.unit).toLowerCase());
+      let status='new', changes=[];
+      if(ex){ ['description','unit','cost_code','operation_id','unit_price','labor_hours','vendor','manufacturer','part_number','quote_url','notes','active'].forEach(f=>{
+          if(!(f in rec)) return; const a=ex[f], b=rec[f];
+          const same = (typeof b==='number') ? Math.abs(Number(a||0)-b)<1e-9 : (a??null)===(b??null);
+          if(!same) changes.push(f); });
+        status = changes.length?'chg':'same'; }
+      rows.push({ix:ix+2, rec, ex, status, changes, warn});
+    });
+    S.imp={rows,newCodes:[...newCodes]};
+    renderImport();
+  };
+  rd.readAsArrayBuffer(file);
+}
+const FLABEL={description:'Description',unit:'Unit',cost_code:'Cost Code',operation_id:'Operation',unit_price:'Price',labor_hours:'Labor',vendor:'Vendor',manufacturer:'Mfr',part_number:'Part #',quote_url:'Quote',notes:'Notes',active:'Active'};
+function renderImport(){
+  const {rows,newCodes}=S.imp; const n=rows.filter(r=>r.status==='new').length, c=rows.filter(r=>r.status==='chg').length, s=rows.filter(r=>r.status==='same').length;
+  $('#impPreview').innerHTML = `<div class="card">
+    <div class="panel-h"><h3>Import Preview</h3><span class="tag new">${n} new</span><span class="tag chg">${c} changed</span><span class="tag same">${s} unchanged</span>
+      ${newCodes.length?`<span class="tag warn">${newCodes.length} new cost code(s): ${newCodes.map(esc).join(', ')}</span>`:''}
+      <span class="spacer"></span><label class="chk"><input type="checkbox" id="impHideSame" checked> Hide unchanged</label>
+      <button class="btn sec sm" id="impCancel">Cancel</button><button class="btn sm" id="impApply" ${n+c?'':'disabled'}>Apply ${n+c} change(s)</button></div>
+    <div class="grid-wrap" style="max-height:60vh"><table class="grid"><thead><tr><th style="width:60px">Row</th><th style="width:90px">Status</th><th>Description</th><th>Unit</th><th>Cost Code</th><th class="r">Price</th><th class="r">Labor</th><th>What changed</th></tr></thead><tbody id="impBody"></tbody></table></div></div>`;
+  const draw=()=>{ const hide=$('#impHideSame').checked;
+    $('#impBody').innerHTML = rows.filter(r=>!hide||r.status!=='same').map(r=>`<tr><td class="hint pad">${r.ix}</td>
+      <td class="pad"><span class="tag ${r.status}">${{new:'New',chg:'Changed',same:'Same'}[r.status]}</span></td>
+      <td class="pad">${esc(r.rec.description)}</td><td class="pad">${esc(r.rec.unit)}</td><td class="pad">${esc(r.rec.cost_code)}</td>
+      <td class="r num pad">${r.ex&&r.changes.includes('unit_price')?`<span class="hint">${money(r.ex.unit_price)} → </span>`:''}${money(r.rec.unit_price)}</td>
+      <td class="r num pad">${r.ex&&r.changes.includes('labor_hours')?`<span class="hint">${num(r.ex.labor_hours,4)} → </span>`:''}${num(r.rec.labor_hours,4)}</td>
+      <td class="hint pad">${r.changes.map(f=>FLABEL[f]).join(', ')}${r.warn.length?` <span class="tag warn">${esc(r.warn.join('; '))}</span>`:''}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">Nothing to change.</td></tr>'; };
+  $('#impHideSame').onchange=draw; draw();
+  $('#impCancel').onclick=()=>{ S.imp=null; $('#impPreview').innerHTML=''; };
+  $('#impApply').onclick=applyImport;
+}
+async function applyImport(){
+  const btn=$('#impApply'); btn.disabled=true; btn.textContent='Applying…';
+  const {rows,newCodes}=S.imp;
+  if(newCodes.length){ const {error}=await sb.from('cost_codes').insert(newCodes.map((c,ix)=>({code:c,name:'(new — rename me)',sort:S.codes.length+ix+1}))); if(error){ btn.disabled=false; return toast(error.message,true); } }
+  const ins=rows.filter(r=>r.status==='new').map(r=>r.rec);
+  if(ins.length){ const {error}=await sb.from('catalog_items').insert(ins); if(error){ btn.disabled=false; return toast('Insert failed: '+error.message,true); } }
+  let fails=0;
+  for(const r of rows.filter(r=>r.status==='chg')){ const {error}=await sb.from('catalog_items').update(r.rec).eq('id',r.ex.id); if(error) fails++; }
+  S.imp=null; $('#impPreview').innerHTML=''; await loadAll(); S.historyRan=false;
+  toast(fails?`Done with ${fails} error(s)`:'Import complete', !!fails);
+}
+
+/* ================= MODAL ================= */
+function modal(html, size){ $('#modal').className='modal'+(size==='full'?' full':size?' wide':''); $('#modal').innerHTML=html; $('#ov').classList.add('on'); }
+function closeModal(){ $('#ov').classList.remove('on'); $('#modal').innerHTML=''; }
+$('#ov').addEventListener('mousedown',e=>{ if(e.target.id==='ov' || e.target.closest('[data-close]')) closeModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape' && $('#ov').classList.contains('on')) closeModal(); });
+document.body.insertAdjacentHTML('beforeend', `<datalist id="unitList">${UNITS.map(u=>`<option value="${u}">`).join('')}</datalist>`);
+</script>
+</body>
+</html>
