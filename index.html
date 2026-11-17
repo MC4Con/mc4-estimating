@@ -3,18 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MC4 Estimating</title>
+<title>Mc4 Estimating</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23000'/%3E%3Cpolygon points='38,7 20,38 33,38 26,58 49,24 36,24 44,7' fill='%23FF5B00'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{
-  --navy:#0f1f33; --navy2:#17304d; --accent:#f2a516; --accent-d:#c98400;
+  --navy:#000000; --navy2:#262626; --accent:#FF5B00; --accent-d:#E04F00;
   --bg:#f4f6f9; --card:#fff; --line:#e1e6ee; --line2:#eef1f5; --text:#1b2533; --muted:#6a7789;
-  --good:#1f8a4c; --bad:#c23b2a; --blue:#2463b8; --row-hover:#f8fafc; --edit:#fffbea;
+  --good:#1f8a4c; --bad:#c23b2a; --blue:#2463b8; --row-hover:#f8fafc; --edit:#fff6ef;
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
@@ -25,7 +26,10 @@ button:disabled{opacity:.5;cursor:default}
 input,select,textarea{font:inherit;color:inherit}
 a{color:var(--blue)}
 
-#login{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,var(--navy),var(--navy2))}
+#login{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#000,#262626)}
+.login-brand{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+.login-brand b{font-family:Oswald,sans-serif;font-size:34px;line-height:1;display:block}
+.login-brand span{font-size:11px;font-weight:600;letter-spacing:.32em;color:#000;display:block;margin-top:3px}
 .login-card{background:#fff;border-radius:12px;padding:32px;width:340px;box-shadow:0 20px 50px rgba(0,0,0,.3)}
 .login-card h1{margin:0 0 4px;font-size:20px}
 .login-card p{margin:0 0 20px;color:var(--muted)}
@@ -35,22 +39,24 @@ a{color:var(--blue)}
 #loginErr{color:var(--bad);margin-top:10px;min-height:18px;font-size:12.5px}
 
 header{background:var(--navy);color:#fff;display:flex;align-items:center;gap:24px;padding:0 20px;height:56px;position:sticky;top:0;z-index:20}
-.brand{font-weight:700;font-size:16px;letter-spacing:.2px;white-space:nowrap}
-.brand span{color:var(--accent)}
+.brand{display:flex;align-items:center;gap:10px;white-space:nowrap}
+.brand .bt{display:flex;flex-direction:column;line-height:1}
+.brand .bt b{font-family:Oswald,sans-serif;font-size:20px;font-weight:700;color:#fff}
+.brand .bt span{font-size:8.5px;font-weight:600;letter-spacing:.32em;color:var(--accent);margin-top:2px}
 nav{display:flex;gap:2px;flex:1;overflow-x:auto;align-items:center}
-nav button{background:none;border:0;color:#b9c6d8;padding:8px 12px;border-radius:6px;font-weight:500;white-space:nowrap}
+nav button{background:none;border:0;color:#c9c9c9;padding:8px 12px;border-radius:6px;font-weight:500;white-space:nowrap}
 nav button:hover{color:#fff;background:rgba(255,255,255,.07)}
-nav button.on{color:var(--navy);background:var(--accent)}
-nav .sep{width:1px;height:22px;background:#33496a;margin:0 8px}
-nav .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:#6f86a6;margin-right:4px}
-.who{font-size:12px;color:#b9c6d8;white-space:nowrap}
-.who button{margin-left:8px;background:none;border:1px solid #3b5272;color:#dfe7f1;border-radius:6px;padding:4px 10px}
+nav button.on{color:#000;background:var(--accent)}
+nav .sep{width:1px;height:22px;background:#444;margin:0 8px}
+nav .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:#8a8a8a;margin-right:4px}
+.who{font-size:12px;color:#c9c9c9;white-space:nowrap}
+.who button{margin-left:8px;background:none;border:1px solid #555;color:#eee;border-radius:6px;padding:4px 10px}
 main{padding:20px;max-width:1600px;margin:0 auto}
 .view{display:none}.view.on{display:block}
 .bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .bar h2{margin:0 12px 0 0;font-size:18px}
 .spacer{flex:1}
-.btn{border:0;border-radius:7px;padding:8px 14px;font-weight:600;background:var(--accent);color:var(--navy);white-space:nowrap}
+.btn{border:0;border-radius:7px;padding:8px 14px;font-weight:600;background:var(--accent);color:#000;white-space:nowrap}
 .btn:hover:not(:disabled){background:var(--accent-d)}
 .btn.sec{background:#fff;border:1px solid var(--line);color:var(--text);font-weight:500}
 .btn.sec:hover:not(:disabled){background:var(--row-hover)}
@@ -102,7 +108,7 @@ select.cell{padding:5px 2px}
 .side-list{max-height:calc(100vh - 230px);overflow:auto}
 .side-list .it{padding:10px 14px;border-bottom:1px solid var(--line2);cursor:pointer}
 .side-list .it:hover{background:var(--row-hover)}
-.side-list .it.on{background:#fff7e6;border-left:3px solid var(--accent);padding-left:11px}
+.side-list .it.on{background:#fff1e8;border-left:3px solid var(--accent);padding-left:11px}
 .side-list .it .n{font-weight:600}
 .side-list .it .m{font-size:12px;color:var(--muted);margin-top:2px;display:flex;gap:8px}
 .asm-head{display:grid;grid-template-columns:2fr 90px 1fr;gap:10px;padding:16px;border-bottom:1px solid var(--line)}
@@ -131,9 +137,9 @@ select.cell{padding:5px 2px}
 .job-meta input:hover,.job-meta select:hover{border-color:var(--line)}
 .job-meta input:focus{outline:none;border-color:var(--accent);background:var(--edit)}
 .job-total{background:var(--navy);color:#fff;border-radius:10px;padding:12px 18px;text-align:right;min-width:220px}
-.job-total .l{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#9fb2cc}
+.job-total .l{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#aaa}
 .job-total .v{font-size:24px;font-weight:700;color:var(--accent)}
-.job-total .s{font-size:11.5px;color:#b9c6d8;margin-top:2px}
+.job-total .s{font-size:11.5px;color:#c9c9c9;margin-top:2px}
 .subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px}
 .subtabs button{background:none;border:0;border-bottom:3px solid transparent;padding:9px 14px;font-weight:600;color:var(--muted)}
 .subtabs button.on{color:var(--navy);border-bottom-color:var(--accent)}
@@ -146,7 +152,7 @@ select.cell{padding:5px 2px}
 .sum-col h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
 .sum-row{display:flex;justify-content:space-between;padding:3px 0;font-size:13px}
 .sum-row.t{border-top:1px solid var(--line);margin-top:4px;padding-top:6px;font-weight:600}
-.unit-box{display:flex;align-items:center;gap:20px;padding:14px 16px;background:#fff7e6;border-top:1px solid #f3dfb3;border-radius:0 0 10px 10px;flex-wrap:wrap}
+.unit-box{display:flex;align-items:center;gap:20px;padding:14px 16px;background:#fff1e8;border-top:1px solid #ffd3b8;border-radius:0 0 10px 10px;flex-wrap:wrap}
 .unit-box .big{font-size:22px;font-weight:700;color:var(--navy)}
 .unit-box input{width:130px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;text-align:right}
 .op-row td{background:#f6f8fb;font-weight:600}
@@ -169,17 +175,25 @@ select.cell{padding:5px 2px}
 .modal-f{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;align-items:center}
 .pick-list{max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:10px}
 .pick-list .p{display:flex;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line2);cursor:pointer;align-items:center}
-.pick-list .p:hover{background:#fff7e6}
-.pick-list .p.on{background:#fff3d6}
+.pick-list .p:hover{background:#fff1e8}
+.pick-list .p.on{background:#ffe6d6}
 .pick-list .p .d{flex:1}
 .pick-list .p .c{color:var(--muted);font-size:12px;white-space:nowrap}
 .pick-list .p input.q{width:80px;padding:4px 6px;border:1px solid var(--line);border-radius:5px;text-align:right}
 
+#updBar{position:fixed;left:20px;bottom:20px;z-index:70;background:#000;color:#fff;border-left:4px solid var(--accent);border-radius:10px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:none;align-items:center;gap:14px;max-width:460px}
+#updBar.on{display:flex}
+#updBar .t b{display:block;font-size:14px}
+#updBar .t span{font-size:12px;color:#c9c9c9}
+#updBar .later{background:none;border:0;color:#c9c9c9;font-size:12.5px;padding:6px}
+.upd-pill{display:none;background:var(--accent);color:#000;border:0;border-radius:14px;padding:4px 10px;font-weight:600;font-size:12px;margin-right:6px}
+.who button.upd-pill{background:var(--accent);color:#000;border:0;margin-left:0}
+.upd-pill.on{display:inline-block}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:8px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60}
 #toast.on{opacity:1}
 #toast.bad{background:var(--bad)}
 .drop{border:2px dashed var(--line);border-radius:10px;padding:28px;text-align:center;color:var(--muted);background:#fff}
-.drop.over{border-color:var(--accent);background:#fff7e6}
+.drop.over{border-color:var(--accent);background:#fff1e8}
 .steps{margin:0;padding-left:20px;line-height:1.7}
 .empty{padding:40px;text-align:center;color:var(--muted)}
 .logo-prev{max-height:60px;max-width:220px;display:block;margin-bottom:6px;border:1px solid var(--line);border-radius:6px;padding:4px;background:#fff}
@@ -190,7 +204,7 @@ select.cell{padding:5px 2px}
 
 <div id="login">
   <form class="login-card" id="loginForm">
-    <h1>MC4 <span style="color:var(--accent-d)">Estimating</span></h1>
+    <div class="login-brand"><svg width="56" height="56" viewBox="0 0 64 64" role="img" aria-label="Mc4 Estimating"><rect width="64" height="64" rx="14" fill="#000"/><line x1="12" y1="20" x2="26" y2="20" stroke="#A3A3A3" stroke-width="3.2" stroke-linecap="round"/><line x1="12" y1="32" x2="21" y2="32" stroke="#A3A3A3" stroke-width="3.2" stroke-linecap="round"/><line x1="12" y1="44" x2="24" y2="44" stroke="#A3A3A3" stroke-width="3.2" stroke-linecap="round"/><polygon points="38,9 24,36 34,36 28,55 47,26 37,26 43,9" fill="#FF5B00"/></svg><div><b>Mc4</b><span>ESTIMATING</span></div></div>
     <p>Sign in to continue</p>
     <label>Email</label><input id="lEmail" type="email" autocomplete="username" required>
     <label>Password</label><input id="lPass" type="password" autocomplete="current-password" required>
@@ -201,7 +215,7 @@ select.cell{padding:5px 2px}
 
 <div id="app" style="display:none">
 <header>
-  <div class="brand">MC4 <span>Estimating</span></div>
+  <div class="brand"><svg width="32" height="32" viewBox="0 0 64 64" role="img" aria-label="Mc4 Estimating"><rect width="64" height="64" rx="14" fill="#000"/><line x1="12" y1="20" x2="26" y2="20" stroke="#A3A3A3" stroke-width="3.2" stroke-linecap="round"/><line x1="12" y1="32" x2="21" y2="32" stroke="#A3A3A3" stroke-width="3.2" stroke-linecap="round"/><line x1="12" y1="44" x2="24" y2="44" stroke="#A3A3A3" stroke-width="3.2" stroke-linecap="round"/><polygon points="38,9 24,36 34,36 28,55 47,26 37,26 43,9" fill="#FF5B00"/></svg><div class="bt"><b>Mc4</b><span>ESTIMATING</span></div></div>
   <nav id="nav">
     <button data-v="jobs" class="on">Estimates</button>
     <span class="sep"></span><span class="lbl">Catalog</span>
@@ -213,7 +227,7 @@ select.cell{padding:5px 2px}
     <button data-v="reports">Price History</button>
     <button data-v="io">Import / Export</button>
   </nav>
-  <div class="who"><span id="whoEmail"></span><button id="signOut">Sign out</button></div>
+  <div class="who"><button class="upd-pill" id="updPill" title="A new version is available">↻ Update available</button><span id="whoEmail"></span><button id="reloadBtn" title="Reload the app and your data">↻ Refresh</button><button id="signOut">Sign out</button></div>
 </header>
 
 <main>
@@ -374,6 +388,7 @@ select.cell{padding:5px 2px}
 
 <div class="ov" id="ov"><div class="modal" id="modal"></div></div>
 <div id="toast"></div>
+<div id="updBar" role="status"><div class="t"><b>A new version of Mc4 Estimating is available</b><span>Your work is already saved. Refresh to get the latest changes.</span></div><button class="btn sm" id="updGo">Refresh now</button><button class="later" id="updLater">Later</button></div>
 
 <script>
 /* ================= CONFIG ================= */
@@ -452,6 +467,7 @@ async function loadAll(){
   $('#rCode').innerHTML = codeOptions('', 'All cost codes');
   $('#jStatus').innerHTML = '<option value="">All statuses</option>'+STATUSES.map(s=>`<option>${s}</option>`).join('');
   renderJobs(); renderItems(); renderAsmList(); renderSettings(); renderEquip(); renderOps(); renderCodes(); renderCompany();
+  if(!S.reopened){ S.reopened=true; reopenAfterRefresh(); }
 }
 
 /* ================= NAV ================= */
@@ -921,7 +937,7 @@ function buildProposal(){
   if(!window.jspdf){ toast('PDF library did not load — check your connection',true); return null; }
   const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'pt',format:'letter'});
   const C=S.company, J=S.job, P=getProp(); const W=612, M=48; let y=44;
-  const NAVY=[15,31,51], ACC=[242,165,22], MUT=[106,119,137];
+  const NAVY=[0,0,0], ACC=[255,91,0], MUT=[100,100,100];
   // header
   let logoW=0;
   if(C.logo){ try{ const p=doc.getImageProperties(C.logo); const h=52, w=Math.min(190, p.width*h/p.height); doc.addImage(C.logo, M, y-6, w, w*p.height/p.width); logoW=w; }catch(e){} }
@@ -951,7 +967,7 @@ function buildProposal(){
   const body=items.map(b=>{ const c=calcItem(b); return showU?[b.item_no||'',b.description,num(b.qty,2),b.unit||'',money(c.unit),money(c.amount)]:[b.item_no||'',b.description,money(c.amount)]; });
   doc.autoTable({ startY:y, head, body, foot:[showU?[{content:'TOTAL',colSpan:5,styles:{halign:'right'}},money(total)]:[{content:'TOTAL',colSpan:2,styles:{halign:'right'}},money(total)]],
     margin:{left:M,right:M,bottom:60}, theme:'striped', styles:{fontSize:9,cellPadding:5,textColor:[27,37,51],lineColor:[225,230,238]},
-    headStyles:{fillColor:NAVY,textColor:255,fontStyle:'bold'}, footStyles:{fillColor:[255,243,214],textColor:NAVY,fontStyle:'bold',fontSize:10.5}, alternateRowStyles:{fillColor:[248,250,252]},
+    headStyles:{fillColor:NAVY,textColor:255,fontStyle:'bold'}, footStyles:{fillColor:[255,236,224],textColor:NAVY,fontStyle:'bold',fontSize:10.5}, alternateRowStyles:{fillColor:[248,250,252]},
     columnStyles: showU ? {0:{cellWidth:56},2:{halign:'right',cellWidth:56},3:{cellWidth:38},4:{halign:'right',cellWidth:72},5:{halign:'right',cellWidth:84}} : {0:{cellWidth:60},2:{halign:'right',cellWidth:100}},
     didParseCell:d=>{ if(d.section==='head' && ((showU&&d.column.index>=4)||(showU&&d.column.index===2)||(!showU&&d.column.index===2))) d.cell.styles.halign='right'; } });
   y=doc.lastAutoTable.finalY+20;
@@ -1569,6 +1585,30 @@ async function applyImport(){
   S.imp=null; $('#impPreview').innerHTML=''; await loadAll(); S.historyRan=false;
   toast(fails?`Done with ${fails} error(s)`:'Import complete', !!fails);
 }
+
+/* ================= UPDATE CHECK & REFRESH ================= */
+let baseHash=null, updDismissed=false;
+const strHash=s=>{ let h=0; for(let i=0;i<s.length;i++){ h=((h<<5)-h+s.charCodeAt(i))|0; } return h; };
+async function checkVersion(){
+  if(!/^https?:$/.test(location.protocol)) return;
+  try{ const r=await fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}); if(!r.ok) return; const h=strHash(await r.text());
+    if(baseHash==null){ baseHash=h; return; }
+    if(h!==baseHash){ $('#updPill').classList.add('on'); if(!updDismissed) $('#updBar').classList.add('on'); } }catch(e){}
+}
+function refreshApp(){
+  try{ sessionStorage.setItem('mc4_reopen', JSON.stringify({ job:S.job?.id||null, tab:S.jobTab, bi:S.biSel, view:(document.querySelector('#nav button.on')||{}).dataset?.v||'jobs' })); }catch(e){}
+  location.reload();
+}
+async function reopenAfterRefresh(){
+  let st=null; try{ st=JSON.parse(sessionStorage.getItem('mc4_reopen')||'null'); sessionStorage.removeItem('mc4_reopen'); }catch(e){}
+  if(!st) return;
+  if(st.view && st.view!=='jobs'){ const b=document.querySelector(`#nav button[data-v="${st.view}"]`); if(b) b.click(); }
+  else if(st.job && S.jobs.some(j=>j.id===st.job)){ await openJob(st.job, st.tab||'sheet'); if(st.bi && S.bis.some(b=>b.id===st.bi)){ S.biSel=st.bi; renderJobBody(); } }
+}
+$('#updGo').onclick=refreshApp; $('#updPill').onclick=refreshApp; $('#reloadBtn').onclick=refreshApp;
+$('#updLater').onclick=()=>{ updDismissed=true; $('#updBar').classList.remove('on'); };
+checkVersion(); setInterval(checkVersion, 60000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkVersion(); });
 
 /* ================= MODAL ================= */
 function modal(html, size){ $('#modal').className='modal'+(size==='full'?' full':size?' wide':''); $('#modal').innerHTML=html; $('#ov').classList.add('on'); }
