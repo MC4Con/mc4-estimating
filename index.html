@@ -82,7 +82,8 @@ table.grid{width:100%;border-collapse:collapse}
 .grid tr:hover td{background:var(--row-hover)}
 .grid tr.inactive td{opacity:.5}
 .grid tr.group td{background:#eef2f7;font-weight:600;font-size:12px;color:var(--navy2);height:30px;padding-left:10px}
-.grid tfoot td{background:#f8fafc;font-weight:600;border-top:2px solid var(--line);height:40px;padding:0 8px;position:sticky;bottom:0;z-index:2}
+.grid tfoot td{background:#f8fafc;font-weight:600;border-top:2px solid var(--line);height:40px;padding:0 8px}
+#bsTable tfoot td{position:sticky;bottom:0;z-index:2}
 .cell{width:100%;border:1px solid transparent;background:transparent;padding:6px 6px;border-radius:5px;min-width:0}
 .cell:hover{border-color:var(--line)}
 .cell:focus{outline:none;border-color:var(--accent);background:var(--edit)}
@@ -516,6 +517,7 @@ $('#jNew').onclick = ()=>{
     const name=$('#njName').value.trim(); if(!name) return toast('Project name is required',true);
     const rec={ name, job_number:$('#njNum').value.trim()||null, bid_date:$('#njDate').value||null, owner:$('#njOwner').value.trim()||null, location:$('#njLoc').value.trim()||null,
       material_markup:setting('material_markup'), tax_rate:setting('tax_rate'), labor_rate:setting('labor_rate'), labor_markup:setting('labor_markup'), equipment_markup:setting('equipment_markup'),
+      super_rate:setting('super_rate')||setting('labor_rate'), mob_pct:(S.settings.some(s=>s.key==='mob_super_pct')?setting('mob_super_pct'):0.05),
       ops:snapshotOps(), proposal:{}, created_by:S.user };
     const r=await sb.from('jobs').insert(rec).select().single(); if(await dbErr(r,'Create')) return;
     S.jobs.unshift(r.data); closeModal(); openJob(r.data.id, 'sheet', true);
@@ -550,6 +552,7 @@ async function openJob(id, tab, askImport){
   if(ids.length){ bl=await sb.from('bid_lines').select('*').in('bid_item_id',ids).order('sort'); if(await dbErr(bl,'Load')) return; }
   S.job=j.data; S.job.ops=S.job.ops||[]; S.job.proposal=S.job.proposal||{}; S.bis=bi.data; S.bls=bl.data; S.jobTab=tab||'sheet'; S.biSel=S.bis[0]?.id||null;
   $('#jobsList').style.display='none'; $('#jobWs').style.display='block';
+  await ensureSuperOp();
   renderJob();
   if(askImport) openBidImport();
 }
@@ -557,13 +560,23 @@ function closeJob(){ S.job=null; $('#jobWs').style.display='none'; $('#jobsList'
 const linesOf = biId => S.bls.filter(l=>l.bid_item_id===biId).sort((a,b)=>(a.sort||0)-(b.sort||0));
 const jobOp = id => (S.job.ops||[]).find(o=>o.id===id);
 const lineTQ = (l,biq) => l.qty_mode==='per' ? Number(l.qty)*Number(biq||0) : Number(l.qty);
+const isSuper = o => o && /superintend/i.test(o.name||'');
+const superOp = () => (S.job.ops||[]).find(isSuper);
+async function ensureSuperOp(){ if(!S.bis.some(b=>b.is_mob) || superOp()) return; const co=S.ops.find(o=>o.active && isSuper(o)); if(co) await ensureJobOps([co.id]); }
+function mobCalc(bi){
+  const J=S.job; const base=S.bis.filter(x=>!x.is_mob).reduce((s,x)=>s+calcItem(x).hrs,0);
+  const pct=Number(J.mob_pct ?? 0.05), hrs=base*pct, rate=Number(J.super_rate ?? J.labor_rate), so=superOp();
+  return { base, pct, hrs, each:hrs/2, rate, cost:hrs*rate, opId:so?.id||null, opName:so?.name||null };
+}
 
 function calcItem(bi){
   const J=S.job, q=Number(bi.qty)||0, ls=linesOf(bi.id);
   let mat=0, hrs=0; const opHrs={};
   ls.forEach(l=>{ const tq=lineTQ(l,q); mat+=tq*Number(l.unit_price||0); const h=tq*Number(l.labor_hours||0); hrs+=h; const k=l.operation_id||''; opHrs[k]=(opHrs[k]||0)+h; });
+  const crewHrs=hrs; const sup = bi.is_mob ? mobCalc(bi) : null;
+  if(sup && sup.hrs){ hrs+=sup.hrs; const k=sup.opId||''; opHrs[k]=(opHrs[k]||0)+sup.hrs; }
   const tax=mat*J.tax_rate, matOH=(mat+tax)*J.material_markup, matT=mat+tax+matOH;
-  const lab=hrs*J.labor_rate, labOH=lab*J.labor_markup, labT=lab+labOH;
+  const lab=crewHrs*J.labor_rate + (sup?sup.cost:0), labOH=lab*J.labor_markup, labT=lab+labOH;
   const ovr=bi.day_overrides||{}; const ops=[]; let eq=0;
   Object.keys(opHrs).forEach(k=>{
     const o=jobOp(k); const h=opHrs[k];
@@ -578,7 +591,7 @@ function calcItem(bi){
   const total=matT+labT+eqT, calcUnit=q?total/q:0, rounded=roundUp(calcUnit,J.round_mode||'auto');
   const manual = bi.manual_unit_price!=null && bi.manual_unit_price!=='';
   const unit = manual ? Number(bi.manual_unit_price) : rounded;
-  return { q, n:ls.length, mat, tax, matOH, matT, hrs, lab, labOH, labT, ops, eq, eqOH, eqT, total, calcUnit, rounded, manual, unit, amount:unit*q };
+  return { q, n:ls.length, sup, crewHrs, backed:ls.length>0||!!(sup&&sup.hrs), mat, tax, matOH, matT, hrs, lab, labOH, labT, ops, eq, eqOH, eqT, total, calcUnit, rounded, manual, unit, amount:unit*q };
 }
 function jobTotals(){
   const t={amount:0,matT:0,labT:0,eqT:0,hrs:0,cost:0};
@@ -642,7 +655,7 @@ function renderJobBody(){
 function bsFootHtml(t){ return `<tr><td colspan="5" class="r">TOTAL AMOUNT OF PROPOSAL</td><td class="r num" style="font-size:15px">${money(t.amount)}</td><td colspan="3" class="hint" style="font-weight:400">Material ${money0(t.matT)} · Labor ${money0(t.labT)} · Equip ${money0(t.eqT)}</td></tr>`; }
 function bsRowHtml(b, i){
   const c=calcItem(b);
-  const status = c.manual ? '<span class="tag man">Manual price</span>' : c.n ? `<span class="tag ok">${c.n} lines</span>` : '<span class="tag warn">No backup</span>';
+  const status = c.manual ? '<span class="tag man">Manual price</span>' : b.is_mob ? '<span class="tag chg">Mobilization</span>' : c.n ? `<span class="tag ok">${c.n} lines</span>` : '<span class="tag warn">No backup</span>';
   return `<tr data-id="${b.id}">
     <td class="hint c">${i+1}</td>
     <td><input class="cell mono" data-f="item_no" value="${esc(b.item_no)}"></td>
@@ -665,7 +678,7 @@ function renderBidSheet(){
   const tb=$('#bsTable tbody');
   tb.onchange=async e=>{ const el=e.target.closest('.cell'); if(!el) return; const id=el.closest('tr').dataset.id, f=el.dataset.f; let v=el.value.trim();
     if(f==='qty'){ v=parseNum(v); if(v==null) return flash(el,false); } else if(!v && f!=='description') v=null;
-    const ok=await saveBI(id,{[f]:v}); flash(el,ok); refreshBsRow(id); refreshTotals(); };
+    const ok=await saveBI(id,{[f]:v}); flash(el,ok); S.bis.forEach(x=>refreshBsRow(x.id)); refreshTotals(); };
   tb.onclick=async e=>{ const b=e.target.closest('[data-act]'); if(!b) return; const id=b.closest('tr').dataset.id;
     if(b.dataset.act==='open'){ S.biSel=id; S.jobTab='detail'; renderJobBody(); }
     if(b.dataset.act==='del'){ const bi=S.bis.find(x=>x.id===id); if(!confirm(`Delete bid item ${bi.item_no||''} ${bi.description}?`)) return; if(await dbErr(await sb.from('bid_items').delete().eq('id',id),'Delete')) return;
@@ -683,7 +696,7 @@ function refreshBsRow(id){ const tr=document.querySelector(`#bsTable tr[data-id=
 /* ---------- Item Backup tab ---------- */
 function biListHtml(){
   return S.bis.map(b=>{ const c=calcItem(b); return `<div class="it ${b.id===S.biSel?'on':''}" data-id="${b.id}"><div class="n"><span class="mono">${esc(b.item_no)}</span> ${esc(b.description)}</div>
-    <div class="m"><span>${num(b.qty,2)} ${esc(b.unit)}</span><span class="num">${money(c.unit)}/${esc(b.unit)}</span>${c.n?'':c.manual?'<span class="tag man">manual</span>':'<span class="tag warn">no backup</span>'}</div></div>`; }).join('') || '<div class="empty">No bid items</div>';
+    <div class="m"><span>${num(b.qty,2)} ${esc(b.unit)}</span><span class="num">${money(c.unit)}/${esc(b.unit)}</span>${b.is_mob?'<span class="tag chg">mob</span>':''}${c.backed||b.is_mob?'':c.manual?'<span class="tag man">manual</span>':'<span class="tag warn">no backup</span>'}</div></div>`; }).join('') || '<div class="empty">No bid items</div>';
 }
 function renderDetail(){
   if(!S.bis.find(b=>b.id===S.biSel)) S.biSel=S.bis[0]?.id||null;
@@ -703,7 +716,9 @@ function renderBd(){
       <div class="fld"><label>Approx. Qty</label><input data-b="qty" class="num" value="${num(b.qty,4)}"></div>
       <div class="fld"><label>Unit</label><input data-b="unit" list="unitList" value="${esc(b.unit)}"></div>
     </div>
-    <div class="panel-h"><b>Material &amp; Labor</b><span class="hint">Qty is <span class="mode per">per ${esc(b.unit)}</span> (scales with the bid qty) or <span class="mode">total</span> (fixed, e.g. a quote).</span><span class="spacer"></span>
+    <div id="bdMob"></div>
+    <div class="panel-h"><b>${b.is_mob?'1020 Misc Mob Fees &amp; Other Lines':'Material &amp; Labor'}</b><span class="hint">Qty is <span class="mode per">per ${esc(b.unit)}</span> (scales with the bid qty) or <span class="mode">total</span> (fixed, e.g. a quote).</span><span class="spacer"></span>
+      <label class="chk" title="Adds superintendent hours (1010/1030) based on the project's labor hours"><input type="checkbox" id="bdIsMob" ${b.is_mob?'checked':''}> Mobilization item</label>
       <button class="btn sm" id="bdAsm">+ From Assembly</button><button class="btn sm sec" id="bdCat">+ Catalog Items</button><button class="btn sm sec" id="bdBlank">+ Blank Line</button></div>
     <div style="overflow:auto"><table class="grid" id="blTable"><thead><tr>
       <th style="min-width:220px">Description</th><th style="width:120px">Cost Code</th><th style="width:150px">Operation</th>
@@ -713,8 +728,11 @@ function renderBd(){
       <tbody>${ls.map(l=>blRowHtml(l,b)).join('') || `<tr><td colspan="13" class="empty">No lines yet. Add from a master assembly, pick catalog items, or add a blank line.</td></tr>`}</tbody></table></div>
     <div class="panel-h" style="border-top:1px solid var(--line)"><b>Equipment by Operation</b><span class="hint">Days = labor hrs ÷ crew ÷ hrs/day. Type in a Days box to override it for this item.</span></div>
     <div id="bdEquip"></div>
+    <div class="panel-h" style="border-top:1px solid var(--line)"><b>Cost by Cost Code</b><span class="hint">Before tax and markup. Equipment is split by each code's share of the operation's hours.</span></div>
+    <div id="bdCodes"></div>
     <div id="bdSum"></div>
   </div>`;
+  $('#bdIsMob').onchange=async e=>{ await saveBI(b.id,{is_mob:e.target.checked}); await ensureSuperOp(); renderBd(); refreshBiList(); refreshTotals(); };
   box.querySelector('.bd-head').onchange=async e=>{ const k=e.target.dataset.b; if(!k) return; let v=e.target.value.trim();
     if(k==='qty'){ v=parseNum(v); if(v==null) return flash(e.target,false); }
     const ok=await saveBI(b.id,{[k]:v||(k==='description'?'':null)}); flash(e.target,ok);
@@ -772,7 +790,7 @@ function renderBdSum(){
   const r=(l,v,cls)=>`<div class="sum-row ${cls||''}"><span>${l}</span><span class="num">${v}</span></div>`;
   box.innerHTML = `<div class="sum-grid">
     <div class="sum-col"><h4>Material</h4>${r('Material cost',money(c.mat))}${r('Tax '+pctTxt(J.tax_rate),money(c.tax))}${r('OH/P '+pctTxt(J.material_markup),money(c.matOH))}${r('Total material',money(c.matT),'t')}</div>
-    <div class="sum-col"><h4>Labor</h4>${r(num(c.hrs,2)+' hrs × '+money(J.labor_rate),money(c.lab))}${r('OH/P '+pctTxt(J.labor_markup),money(c.labOH))}${r('Total labor',money(c.labT),'t')}${r('Labor % of total',c.total?num(c.labT/c.total*100,1)+'%':'—')}</div>
+    <div class="sum-col"><h4>Labor</h4>${c.sup?r(num(c.crewHrs,2)+' crew hrs × '+money(J.labor_rate),money(c.crewHrs*J.labor_rate))+r(num(c.sup.hrs,2)+' super hrs × '+money(c.sup.rate),money(c.sup.cost)):r(num(c.hrs,2)+' hrs × '+money(J.labor_rate),money(c.lab))}${r('OH/P '+pctTxt(J.labor_markup),money(c.labOH))}${r('Total labor',money(c.labT),'t')}${r('Labor % of total',c.total?num(c.labT/c.total*100,1)+'%':'—')}</div>
     <div class="sum-col"><h4>Equipment</h4>${r('Equipment',money(c.eq))}${r('OH/P '+pctTxt(J.equipment_markup),money(c.eqOH))}${r('Total equipment',money(c.eqT),'t')}${r('<b>Item total</b>','<b>'+money(c.total)+'</b>')}</div>
   </div>
   <div class="unit-box">
@@ -784,6 +802,38 @@ function renderBdSum(){
   </div>`;
   $('#bdManual').onchange=async e=>{ const v=e.target.value.trim(); const n = v===''?null:parseNum(v); if(v!=='' && n==null) return flash(e.target,false);
     await saveBI(b.id,{manual_unit_price:n}); renderBdSum(); refreshBiList(); refreshTotals(); };
+  renderBdMob(b,c); renderBdCodes(b,c);
+}
+function renderBdMob(b,c){
+  const box=$('#bdMob'); if(!box) return; if(!b.is_mob){ box.innerHTML=''; return; }
+  const s=c.sup, J=S.job; const so=c.ops.find(o=>o.id===s.opId);
+  const eqEach = so && so.hrs ? so.cost*(s.hrs/so.hrs)/2 : 0;
+  const row=(code,name)=>`<tr><td class="pad mono">${code}</td><td class="pad">${name}</td><td class="r num pad">${num(s.each,2)}</td><td class="r num pad">${money(s.rate)}</td><td class="r num pad">${money(s.each*s.rate)}</td><td class="r num pad">${money(eqEach)}</td><td class="r num pad"><b>${money(s.each*s.rate+eqEach)}</b></td></tr>`;
+  box.innerHTML = `<div class="panel-h" style="background:#fff1e8"><b>Superintendent (1010 / 1030)</b>
+      <span class="hint">${num(s.pct*100,3)}% of <b>${num(s.base,1)}</b> project labor hrs = <b>${num(s.hrs,1)} hrs</b>, split equally</span><span class="spacer"></span>
+      <label class="chk">Super % <input class="sel num" id="mobPct" style="width:80px;padding:4px 6px" value="${num(s.pct*100,3)}%"></label>
+      <label class="chk">Super rate <input class="sel num" id="mobRate" style="width:100px;padding:4px 6px" value="${money(s.rate)}"></label></div>
+    <table class="grid"><thead><tr><th style="width:70px">Code</th><th>Description</th><th class="r" style="width:90px">Hours</th><th class="r" style="width:100px">Rate</th><th class="r" style="width:110px">Labor</th><th class="r" style="width:120px">Vehicle / Equip</th><th class="r" style="width:120px">Cost</th></tr></thead>
+    <tbody>${row('1010','Meetings — superintendent')}${row('1030','Lay Out Job — superintendent')}</tbody></table>
+    ${s.opId?'':'<div class="panel-b hint"><span class="tag warn">No Superintendent operation in this estimate</span> Add one on Rates &amp; Crews to price the truck.</div>'}`;
+  $('#mobPct').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null) return flash(e.target,false); await saveJob({mob_pct:v/100}); renderBdEquip(); renderBdSum(); refreshBiList(); refreshTotals(); };
+  $('#mobRate').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null) return flash(e.target,false); await saveJob({super_rate:v}); renderBdEquip(); renderBdSum(); refreshBiList(); refreshTotals(); };
+}
+function codeBreakdown(b,c){
+  const J=S.job, q=Number(b.qty)||0, map={}, opCode={};
+  const add=(code,mat,hrs,lab,op)=>{ const k=code||'—'; const m=map[k]=map[k]||{code:k,mat:0,hrs:0,lab:0,eq:0}; m.mat+=mat; m.hrs+=hrs; m.lab+=lab; const ok=op||''; (opCode[ok]=opCode[ok]||{})[k]=((opCode[ok]||{})[k]||0)+hrs; };
+  linesOf(b.id).forEach(l=>{ const tq=lineTQ(l,q), h=tq*Number(l.labor_hours||0); add(l.cost_code, tq*Number(l.unit_price||0), h, h*J.labor_rate, l.operation_id); });
+  if(c.sup && c.sup.hrs){ ['1010','1030'].forEach(k=>add(k,0,c.sup.each,c.sup.each*c.sup.rate,c.sup.opId)); }
+  c.ops.forEach(o=>{ if(!o.cost||!o.hrs) return; const oc=opCode[o.id]||{}; Object.keys(oc).forEach(k=>{ map[k].eq += o.cost*oc[k]/o.hrs; }); });
+  return Object.values(map).sort((a,b)=>String(a.code).localeCompare(String(b.code)));
+}
+function renderBdCodes(b,c){
+  const box=$('#bdCodes'); if(!box) return; const rows=codeBreakdown(b,c);
+  if(!rows.length){ box.innerHTML='<div class="panel-b hint">No costs yet.</div>'; return; }
+  const t=rows.reduce((s,r)=>({mat:s.mat+r.mat,hrs:s.hrs+r.hrs,lab:s.lab+r.lab,eq:s.eq+r.eq}),{mat:0,hrs:0,lab:0,eq:0});
+  box.innerHTML = `<table class="grid"><thead><tr><th style="width:90px">Code</th><th>Name</th><th class="r" style="width:110px">Material</th><th class="r" style="width:90px">Labor Hrs</th><th class="r" style="width:110px">Labor</th><th class="r" style="width:110px">Equipment</th><th class="r" style="width:120px">Cost</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr><td class="pad mono">${esc(r.code)}</td><td class="pad">${esc(codeName(r.code))}</td><td class="r num pad">${money(r.mat)}</td><td class="r num pad">${num(r.hrs,2)}</td><td class="r num pad">${money(r.lab)}</td><td class="r num pad">${money(r.eq)}</td><td class="r num pad"><b>${money(r.mat+r.lab+r.eq)}</b></td></tr>`).join('')}
+    </tbody><tfoot><tr><td colspan="2" class="r">Total (before tax &amp; markup)</td><td class="r num">${money(t.mat)}</td><td class="r num">${num(t.hrs,2)}</td><td class="r num">${money(t.lab)}</td><td class="r num">${money(t.eq)}</td><td class="r num">${money(t.mat+t.lab+t.eq)}</td></tr></tfoot></table>`;
 }
 async function ensureJobOps(opIds){
   const missing=[...new Set(opIds.filter(id=>id && !jobOp(id)))].map(id=>S.ops.find(o=>o.id===id)).filter(Boolean);
@@ -863,7 +913,9 @@ function renderJobRates(){
   $('#jBody').innerHTML = `<div class="two">
     <div class="card"><div class="panel-h"><h3>Rates &amp; Markups for this Estimate</h3></div><div class="panel-b"><div class="form">
       ${pf('material_markup','OH/P on Material')}${pf('tax_rate','Sales Tax on Material')}
-      <div class="fld"><label>Labor Rate ($/man-hr)</label><input class="num" data-jr="labor_rate" value="${money(J.labor_rate)}"></div>
+      <div class="fld"><label>Labor Rate ($/man-hr)</label><input class="num" data-jr="labor_rate" data-money="1" value="${money(J.labor_rate)}"></div>
+      <div class="fld"><label>Superintendent Rate ($/hr)</label><input class="num" data-jr="super_rate" data-money="1" value="${money(J.super_rate ?? J.labor_rate)}"></div>
+      ${pf('mob_pct','Superintendent Hrs (% of labor hrs)')}
       ${pf('labor_markup','OH/P on Labor')}${pf('equipment_markup','OH/P on Equipment')}
       <div class="fld"><label>Round Unit Prices</label><select data-jr="round_mode">${ROUND_MODES.map(([v,l])=>`<option value="${v}" ${v===J.round_mode?'selected':''}>${l}</option>`).join('')}</select></div>
       <div class="fld full"><label>Internal Notes</label><textarea data-jr="notes">${esc(J.notes)}</textarea></div>
@@ -873,7 +925,7 @@ function renderJobRates(){
   $('#jBody').querySelector('.form').onchange=async e=>{ const el=e.target, k=el.dataset.jr; if(!k) return; let v=el.value;
     if(k==='round_mode'||k==='notes'){ v=v.trim()||(k==='round_mode'?'auto':null); }
     else { v=parseNum(v); if(v==null) return flash(el,false); if(el.dataset.pct) v=v/100; }
-    const ok=await saveJob({[k]:v}); flash(el,ok); if(el.dataset.pct) el.value=num(v*100,4)+'%'; if(k==='labor_rate') el.value=money(v); refreshTotals(); };
+    const ok=await saveJob({[k]:v}); flash(el,ok); if(el.dataset.pct) el.value=num(v*100,4)+'%'; if(el.dataset.money) el.value=money(v); refreshTotals(); };
   $('#jrReset').onclick=async ()=>{ if(!confirm('Replace this estimate\'s crews and equipment rates with the current catalog values?')) return; await saveJob({ops:snapshotOps()}); renderJobRates(); refreshTotals(); };
   $('#jrAddOp').onchange=async e=>{ if(!e.target.value) return; await ensureJobOps([e.target.value]); renderJobRates(); refreshTotals(); };
   renderJobOps();
@@ -1065,7 +1117,7 @@ async function applyBidImport(){
   $('#biGo').disabled=true; $('#biGo').textContent='Importing…';
   if(replace){ if(await dbErr(await sb.from('bid_items').delete().eq('job_id',S.job.id),'Replace')) return; S.bis=[]; S.bls=[]; }
   let s=Math.max(0,...S.bis.map(b=>b.sort||0));
-  const recs=rows.map(r=>({id:uuid(), job_id:S.job.id, item_no:r.item_no||null, description:r.description, qty:r.qty, unit:r.unit, sort:++s}));
+  const recs=rows.map(r=>({id:uuid(), job_id:S.job.id, item_no:r.item_no||null, description:r.description, qty:r.qty, unit:r.unit, sort:++s, is_mob:/mobiliz/i.test(r.description)}));
   if(await dbErr(await sb.from('bid_items').insert(recs),'Import')) return;
   S.bis.push(...recs.map(r=>({...r, manual_unit_price:null, day_overrides:{}, in_proposal:true})));
   let built=0;
@@ -1075,7 +1127,7 @@ async function applyBidImport(){
         lines.push({id:uuid(), bid_item_id:b.id, sort:++so, ...lineFromItem(i, Number(p.qty_per), 'per', a.name, p.cost_code)}); }); if(la.length) built++; }); });
     for(let i=0;i<lines.length;i+=500){ if(await dbErr(await sb.from('bid_lines').insert(lines.slice(i,i+500)),'Build')) break; }
     S.bls.push(...lines); await ensureJobOps(lines.map(l=>l.operation_id)); }
-  closeModal(); S.jobTab='sheet'; renderJob(); refreshTotals();
+  await ensureSuperOp(); closeModal(); S.jobTab='sheet'; renderJob(); refreshTotals();
   toast(`Imported ${recs.length} bid items${auto?` · ${built} built from assemblies`:''}`);
 }
 
@@ -1091,6 +1143,7 @@ function exportBidSheets(){
   const used=new Set(['Bid Sheet','PERCENTS']);
   S.bis.forEach((b,ix)=>{ const c=calcItem(b); const ls=linesOf(b.id);
     const a=[[b.item_no||'', b.description],['Qty', Number(b.qty), b.unit||''],[],['Cost Code','Material','Quantity','Unit','Unit Price','Extension','Labor Hrs/Unit','Labor Hrs','Operation','Vendor']];
+    if(c.sup && c.sup.hrs){ [['1010','Superintendent — Meetings'],['1030','Superintendent — Lay Out Job']].forEach(([k,d])=>a.push([k, `${d} (${num(c.sup.pct*100/2,3)}% of ${num(c.sup.base,1)} hrs @ ${money(c.sup.rate)}/hr)`, c.sup.each, 'hr', 0, 0, 1, c.sup.each, c.sup.opName||'', ''])); }
     ls.forEach(l=>{ const tq=lineTQ(l,b.qty); a.push([l.cost_code||'', l.description, tq, l.unit||'', Number(l.unit_price), tq*Number(l.unit_price), Number(l.labor_hours), tq*Number(l.labor_hours), (jobOp(l.operation_id)||{}).name||'', l.vendor||'']); });
     a.push([],['','TOTAL MATERIAL COST','','','',c.mat,'',c.hrs],['','TAX ON MATERIAL',J.tax_rate,'','',c.tax],['','OVER HEAD/PROFIT',J.material_markup,'','',c.matOH],['','TOTAL MATERIAL','','','',c.matT],[],
       ['','LABOR',J.labor_rate,'','',c.lab],['','OVER HEAD/PROFIT',J.labor_markup,'','',c.labOH],['','TOTAL LABOR','','','',c.labT],[],['','EQUIPMENT','Qty','Hrs/Day','Days','Cost/Hr','Extension']);
