@@ -268,6 +268,7 @@ tr.item-ready td{background:#f3fbf5}
     <select class="sel" id="iCode"><option value="">All cost codes</option></select>
     <label class="chk"><input type="checkbox" id="iGroup" checked> Group by cost code</label>
     <label class="chk"><input type="checkbox" id="iInactive"> Show inactive</label>
+    <label class="chk" title="Items with labor hours but no operation (labor only, no equipment)"><input type="checkbox" id="iNoOp"> Labor with no operation <span id="iNoOpN"></span></label>
     <span class="spacer"></span>
     <span class="count" id="iCount"></span>
     <button class="btn" id="iNew">+ New Item</button>
@@ -588,6 +589,8 @@ function calcItem(bi){
   if(sup && sup.hrs){ hrs+=sup.hrs; const k=sup.opId||''; opHrs[k]=(opHrs[k]||0)+sup.hrs; }
   const tax=mat*J.tax_rate, matOH=(mat+tax)*J.material_markup, matT=mat+tax+matOH;
   const lab=(crewHrs+mhHrs)*J.labor_rate + (sup?sup.cost:0), labOH=lab*J.labor_markup, labT=lab+labOH;
+  // Lines with no operation are labor only: they add labor cost but no equipment.
+  const noOpHrs=opHrs['']||0; delete opHrs[''];
   const ovr=bi.day_overrides||{}, eqOv=bi.equip||{}; const ops=[]; let eq=0;
   Object.keys(opHrs).forEach(k=>{
     const o=jobOp(k); const h=opHrs[k];
@@ -606,7 +609,7 @@ function calcItem(bi){
   const total=matT+labT+eqT, calcUnit=q?total/q:0, rounded=roundUp(calcUnit,J.round_mode||'auto');
   const manual = bi.manual_unit_price!=null && bi.manual_unit_price!=='';
   const unit = manual ? Number(bi.manual_unit_price) : rounded;
-  return { q, n:ls.length, sup, crewHrs, mhHrs, mhPct, backed:ls.length>0||!!(sup&&sup.hrs), mat, tax, matOH, matT, hrs, lab, labOH, labT, ops, eq, eqOH, eqT, total, calcUnit, rounded, manual, unit, amount:unit*q };
+  return { q, n:ls.length, sup, crewHrs, mhHrs, mhPct, noOpHrs, backed:ls.length>0||!!(sup&&sup.hrs), mat, tax, matOH, matT, hrs, lab, labOH, labT, ops, eq, eqOH, eqT, total, calcUnit, rounded, manual, unit, amount:unit*q };
 }
 function jobTotals(){
   const t={amount:0,matT:0,labT:0,eqT:0,hrs:0,cost:0};
@@ -869,7 +872,7 @@ function blRowHtml(l,b){
   return `<tr data-lid="${l.id}" class="${ci&&ci.highlight?'hl':''}">
     <td><input class="cell" data-f="description" value="${esc(l.description)}" title="${esc(l.source?('From: '+l.source):'')}"></td>
     <td><select class="cell" data-f="cost_code">${codeOptions(l.cost_code,'—')}</select></td>
-    <td><select class="cell" data-f="operation_id">${opOptions(l.operation_id,'—')}</select></td>
+    <td><select class="cell" data-f="operation_id" title="${l.operation_id?'':'No operation: labor only, no equipment'}">${opOptions(l.operation_id,'— (labor only)')}</select></td>
     <td><input class="cell num" data-f="qty" value="${num(l.qty,6)}"></td>
     <td><button class="mode ${l.qty_mode==='per'?'per':''}" data-act="mode" title="Switch between per-unit and total">${l.qty_mode==='per'?'per '+esc(b.unit):'total'}</button></td>
     <td class="r num pad" data-c="tq">${num(tq,2)}</td>
@@ -886,7 +889,7 @@ function refreshBlRow(lid){ const tr=document.querySelector(`#blTable tr[data-li
 function renderBdEquip(){
   const b=S.bis.find(x=>x.id===S.biSel); const c=calcItem(b); const box=$('#bdEquip'); if(!box) return;
   const eqOpts=`<option value="">+ Add equipment…</option>`+S.equipment.filter(e=>e.active).map(e=>`<option value="${e.id}">${esc(e.name)} (${money(e.rate_per_hour)}/hr)</option>`).join('');
-  const opRows=c.ops.filter(o=>!o.extra), extra=c.ops.find(o=>o.extra);
+  const opRows=c.ops.filter(o=>!o.extra && !o.none), extra=c.ops.find(o=>o.extra);
   const eqRow=(o,e)=>`<tr data-op="${o.id}" data-ix="${e.ix}"><td class="pad" style="padding-left:28px">${esc(e.name)}</td><td></td><td></td><td></td><td></td>
       <td><input class="cell num" data-eqf="qty" value="${num(e.qty??1,2)}" ${o.extra?'disabled title="Qty is built into the hours for other equipment"':''}></td>
       <td><input class="cell num ${e.hrsOverride&&!o.extra?'ovr':''}" data-eqf="hrs" value="${e.hrsOverride?num(e.hrsE,3):''}" placeholder="${num(e.autoHrs,2)}" title="${o.extra?'Hours for this item':'Blank = qty × hrs/day × days. Type to override.'}"></td>
@@ -1093,7 +1096,7 @@ function renderJobOps(){
 
 /* ---------- Proposal tab ---------- */
 function propDefaults(){ const C=S.company, J=S.job;
-  return { to:J.owner||'', attn:'', address:'', project:J.name, location:J.location||'', number:[J.job_number,J.revision].filter(Boolean).join(' '), date:new Date().toISOString().slice(0,10),
+  return { to:J.owner||'', attn:'', address:'', city:'', state:'', zip:'', project:J.name, location:J.location||'', number:[J.job_number,J.revision].filter(Boolean).join(' '), date:new Date().toISOString().slice(0,10),
     addenda:'', intro:C.intro||'', inclusions:C.inclusions||'', exclusions:C.exclusions||'', terms:C.terms||'', validity:C.validity_days||30,
     show_unit:true, signer_name:C.signer_name||'', signer_title:C.signer_title||'' }; }
 function getProp(){ return {...propDefaults(), ...(S.job.proposal||{})}; }
@@ -1102,7 +1105,7 @@ function renderProposal(){
   const f=(k,l,type,cls)=>`<div class="fld ${cls||''}"><label>${l}</label>${type==='ta'?`<textarea data-p="${k}" rows="5">${esc(P[k])}</textarea>`:`<input data-p="${k}" type="${type||'text'}" value="${esc(P[k])}">`}</div>`;
   $('#jBody').innerHTML = `<div class="two">
     <div class="card"><div class="panel-h"><h3>Proposal Details</h3><span class="spacer"></span><button class="btn sm sec" id="prReset">Reset wording to company defaults</button></div><div class="panel-b"><div class="form">
-      ${f('to','To (Owner / GC)')}${f('attn','Attention')}${f('address','Address','text','full')}${f('project','Project')}${f('location','Location')}
+      ${f('to','To (Owner / GC)')}${f('attn','Attention')}${f('address','Address Line','text','full')}<div class="full" style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px">${f('city','City')}${f('state','State')}${f('zip','Zip')}</div>${f('project','Project')}${f('location','Location')}
       ${f('number','Proposal #')}${f('date','Proposal Date','date')}${f('addenda','Addenda Acknowledged','text','full')}
       ${f('intro','Opening Line','ta','full')}${f('inclusions','Inclusions (one per line)','ta')}${f('exclusions','Exclusions (one per line)','ta')}
       ${f('terms','Terms & Notes (one per line)','ta','full')}${f('validity','Valid for (days)','number')}<div></div>${f('signer_name','Submitted by')}${f('signer_title','Title')}
@@ -1144,7 +1147,8 @@ function buildProposal(){
   const pd=P.date?new Date(P.date+'T12:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}):'';
   doc.text([P.number?('Proposal # '+P.number):'', pd].filter(Boolean).join('    '), W-M, y, {align:'right'}); y+=16;
   // info block
-  const L=[['To',P.to],['Attention',P.attn],['Address',P.address]].filter(r=>r[1]);
+  const csz=[P.city, [P.state,P.zip].filter(s=>s&&String(s).trim()).join(' ')].filter(s=>s&&String(s).trim()).join(', ');
+  const L=[['To',P.to],['Attention',P.attn],['Address',P.address],[P.address?'':'Address',csz]].filter(r=>r[1]);
   const R=[['Project',P.project],['Location',P.location],['Bid Date',J.bid_date?new Date(J.bid_date+'T12:00').toLocaleDateString('en-US'):''],['Addenda',P.addenda]].filter(r=>r[1]);
   const rows=[]; for(let i=0;i<Math.max(L.length,R.length);i++) rows.push([L[i]?.[0]||'',L[i]?.[1]||'',R[i]?.[0]||'',R[i]?.[1]||'']);
   doc.autoTable({ startY:y, body:rows, theme:'plain', margin:{left:M,right:M}, styles:{fontSize:9.5,cellPadding:{top:2.5,bottom:2.5,left:0,right:8},textColor:[27,37,51]},
@@ -1304,8 +1308,9 @@ function fmtCols(ws, cols, z, fromRow, skipNonMoney){ const r=XLSX.utils.decode_
    CATALOG — ITEMS
    ===================================================================== */
 function filteredItems(){
-  const q=$('#iSearch').value.trim().toLowerCase(), cc=$('#iCode').value, inact=$('#iInactive').checked;
-  let rows = S.items.filter(i=>(inact||i.active) && (!cc||i.cost_code===cc) &&
+  const q=$('#iSearch').value.trim().toLowerCase(), cc=$('#iCode').value, inact=$('#iInactive').checked, noop=$('#iNoOp').checked;
+  const n=S.items.filter(i=>i.active&&!i.operation_id&&Number(i.labor_hours)>0).length; $('#iNoOpN').textContent=n?`(${n})`:'';
+  let rows = S.items.filter(i=>(inact||i.active) && (!cc||i.cost_code===cc) && (!noop||(!i.operation_id&&Number(i.labor_hours)>0)) &&
     (!q || [i.description,i.vendor,i.part_number,i.manufacturer,i.notes].some(v=>(v||'').toLowerCase().includes(q))));
   const {k,d}=S.sort;
   rows.sort((a,b)=>{ let x=a[k],y=b[k]; if(typeof x==='string'||typeof y==='string'){ const r=k==='cost_code' ? (x&&!y?-1:!x&&y?1:numCmp(x,y)) : String(x||'').localeCompare(String(y||''),undefined,{numeric:true}); return d*r || a.description.localeCompare(b.description); } return d*((x||0)-(y||0)); });
@@ -1317,7 +1322,7 @@ function itemRow(i){
     <td><input class="cell" data-f="description" value="${esc(i.description)}"></td>
     <td><input class="cell" data-f="unit" list="unitList" value="${esc(i.unit)}"></td>
     <td><select class="cell" data-f="cost_code">${codeOptions(i.cost_code,'—')}</select></td>
-    <td><select class="cell" data-f="operation_id">${opOptions(i.operation_id,'—')}</select></td>
+    <td><select class="cell" data-f="operation_id" title="${i.operation_id?'':'No operation: labor only, no equipment'}">${opOptions(i.operation_id,'— (labor only)')}</select></td>
     <td><input class="cell num" data-f="unit_price" value="${money(i.unit_price)}"></td>
     <td><input class="cell num" data-f="labor_hours" value="${num(i.labor_hours,4)}"></td>
     <td><input class="cell" data-f="vendor" value="${esc(i.vendor)}"></td>
@@ -1338,7 +1343,7 @@ function renderItems(){
   $('#iTable tbody').innerHTML = html || `<tr><td colspan="10" class="empty">No items match.</td></tr>`;
   $('#iCount').textContent = `${rows.length} of ${S.items.length} items`;
 }
-['#iSearch','#iCode','#iGroup','#iInactive'].forEach(s=>$(s).addEventListener('input',renderItems));
+['#iSearch','#iCode','#iGroup','#iInactive','#iNoOp'].forEach(s=>$(s).addEventListener('input',renderItems));
 $('#iTable thead').addEventListener('click',e=>{ const th=e.target.closest('th[data-s]'); if(!th) return; const k=th.dataset.s; S.sort = {k, d: S.sort.k===k ? -S.sort.d : 1}; renderItems(); });
 $('#iTable tbody').addEventListener('change', async e=>{
   const el=e.target.closest('.cell'); if(!el) return;
@@ -1350,6 +1355,7 @@ $('#iTable tbody').addEventListener('change', async e=>{
   flash(el,ok);
   if(ok && f==='unit_price') el.value=money(v);
   if(ok && f==='cost_code' && $('#iGroup').checked) renderItems();
+  if(ok && (f==='operation_id'||f==='labor_hours')){ const tr=el.closest('tr'); const nt=document.createElement('tbody'); nt.innerHTML=itemRow(S.items.find(x=>x.id===id)); tr.replaceWith(nt.firstElementChild); const n=S.items.filter(i=>i.active&&!i.operation_id&&Number(i.labor_hours)>0).length; $('#iNoOpN').textContent=n?`(${n})`:''; }
 });
 $('#iTable tbody').addEventListener('keydown', e=>{
   if(e.key==='Enter' && e.target.classList.contains('cell')){ e.preventDefault(); const tr=e.target.closest('tr'); let n=tr.nextElementSibling; while(n && !n.dataset.id) n=n.nextElementSibling; const nx=n&&n.querySelector(`[data-f="${e.target.dataset.f}"]`); if(nx) nx.focus(); else e.target.blur(); }
