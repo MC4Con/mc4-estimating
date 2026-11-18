@@ -273,7 +273,7 @@ select.cell{padding:5px 2px}
       <thead><tr>
         <th class="sortable" data-s="description" style="min-width:280px">Description</th>
         <th style="width:70px">Unit</th>
-        <th style="width:150px">Cost Code</th>
+        <th class="sortable" data-s="cost_code" style="width:150px">Cost Code</th>
         <th style="width:160px">Operation</th>
         <th class="r sortable" data-s="unit_price" style="width:110px">Unit Price</th>
         <th class="r sortable" data-s="labor_hours" style="width:100px">Labor Hrs/Unit</th>
@@ -419,6 +419,8 @@ const fdate = v => v ? new Date(v).toLocaleDateString('en-US',{month:'short',day
 const fdt = v => v ? new Date(v).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) : '';
 const parseNum = v => { if(typeof v==='number') return v; const n = parseFloat(String(v??'').replace(/[$,%\s]/g,'')); return isNaN(n) ? null : n; };
 const setting = k => Number((S.settings.find(s=>s.key===k)||{}).value||0);
+const numCmp=(a,b)=>String(a??'').localeCompare(String(b??''),undefined,{numeric:true});
+function sortCodes(){ S.codes.sort((a,b)=>numCmp(a.code,b.code)); }
 const codeName = c => (S.codes.find(x=>x.code===c)||{}).name || '';
 const opName = id => (S.ops.find(x=>x.id===id)||{}).name || '';
 const itemById = id => S.items.find(i=>i.id===id);
@@ -466,7 +468,7 @@ async function loadAll(){
   ]);
   const err = r.find(x=>x.error && x.error.code!=='PGRST116');
   if(err){ toast('Load failed: '+err.error.message, true); return; }
-  [S.items,S.codes,S.settings,S.equipment,S.assemblies,S.lines,S.ops,S.opEq] = r.slice(0,8).map(x=>x.data||[]);
+  [S.items,S.codes,S.settings,S.equipment,S.assemblies,S.lines,S.ops,S.opEq] = r.slice(0,8).map(x=>x.data||[]); sortCodes();
   S.company = r[8].data || {id:1}; S.jobs = r[9].data || [];
   $('#iCode').innerHTML = codeOptions('', 'All cost codes');
   $('#rCode').innerHTML = codeOptions('', 'All cost codes');
@@ -903,7 +905,7 @@ function codeBreakdown(b,c){
   linesOf(b.id).forEach(l=>{ const tq=lineTQ(l,q), h=tq*Number(l.labor_hours||0); add(l.cost_code, tq*Number(l.unit_price||0), h, h*J.labor_rate, l.operation_id); });
   if(c.sup && c.sup.hrs){ ['1010','1030'].forEach(k=>add(k,0,c.sup.each,c.sup.each*c.sup.rate,c.sup.opId)); }
   c.ops.forEach(o=>{ if(!o.cost||!o.hrs) return; const oc=opCode[o.id]||{}; Object.keys(oc).forEach(k=>{ map[k].eq += o.cost*oc[k]/o.hrs; }); });
-  return Object.values(map).sort((a,b)=>String(a.code).localeCompare(String(b.code)));
+  return Object.values(map).sort((a,b)=>numCmp(a.code,b.code));
 }
 function renderBdCodes(b,c){
   const box=$('#bdCodes'); if(!box) return; const rows=codeBreakdown(b,c);
@@ -1247,7 +1249,7 @@ function filteredItems(){
   let rows = S.items.filter(i=>(inact||i.active) && (!cc||i.cost_code===cc) &&
     (!q || [i.description,i.vendor,i.part_number,i.manufacturer,i.notes].some(v=>(v||'').toLowerCase().includes(q))));
   const {k,d}=S.sort;
-  rows.sort((a,b)=>{ let x=a[k],y=b[k]; if(typeof x==='string'||typeof y==='string'){ return d*String(x||'').localeCompare(String(y||'')); } return d*((x||0)-(y||0)); });
+  rows.sort((a,b)=>{ let x=a[k],y=b[k]; if(typeof x==='string'||typeof y==='string'){ const r=k==='cost_code' ? (x&&!y?-1:!x&&y?1:numCmp(x,y)) : String(x||'').localeCompare(String(y||''),undefined,{numeric:true}); return d*r || a.description.localeCompare(b.description); } return d*((x||0)-(y||0)); });
   return rows;
 }
 function itemRow(i){
@@ -1582,7 +1584,7 @@ function refreshCodeSelects(){ $('#iCode').innerHTML=codeOptions($('#iCode').val
 $('#cTable tbody').addEventListener('change', async e=>{
   const el=e.target.closest('.cell'); if(!el) return; const old=el.closest('tr').dataset.c, f=el.dataset.f, v=el.value.trim(); if(!v) return;
   const {error}=await sb.from('cost_codes').update({[f]:v}).eq('code',old); if(error){ flash(el,false); return toast(error.message,true); }
-  const c=S.codes.find(x=>x.code===old); c[f]=v;
+  const c=S.codes.find(x=>x.code===old); c[f]=v; if(f==='code'){ sortCodes(); setTimeout(renderCodes,0); }
   if(f==='code'){ S.items.forEach(i=>{ if(i.cost_code===old) i.cost_code=v; }); S.assemblies.forEach(a=>{ if(a.cost_code===old) a.cost_code=v; }); S.lines.forEach(l=>{ if(l.cost_code===old) l.cost_code=v; }); el.closest('tr').dataset.c=v; }
   flash(el,true); refreshCodeSelects();
 });
@@ -1600,7 +1602,7 @@ $('#cNew').onclick = ()=>{
   $('#ncC').focus();
   $('#ncS').onclick = async ()=>{ const code=$('#ncC').value.trim(), name=$('#ncN').value.trim(); if(!code||!name) return toast('Code and name required',true);
     const {data,error}=await sb.from('cost_codes').insert({code,name,sort:S.codes.length+1}).select().single(); if(error) return toast(error.message,true);
-    S.codes.push(data); closeModal(); renderCodes(); refreshCodeSelects(); };
+    S.codes.push(data); sortCodes(); closeModal(); renderCodes(); refreshCodeSelects(); };
 };
 
 /* =====================================================================
