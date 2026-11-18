@@ -458,7 +458,7 @@ async function loadAll(){
     sb.from('operations').select('*').order('sort'),
     sb.from('operation_equipment').select('*'),
     sb.from('company_profile').select('*').eq('id',1).single(),
-    sb.from('jobs').select('id,job_number,name,owner,location,bid_date,status,revision,total,updated_at').order('updated_at',{ascending:false}),
+    sb.from('jobs').select('id,job_number,name,owner,location,bid_date,status,revision,total,updated_at,locked').order('updated_at',{ascending:false}),
   ]);
   const err = r.find(x=>x.error && x.error.code!=='PGRST116');
   if(err){ toast('Load failed: '+err.error.message, true); return; }
@@ -477,7 +477,7 @@ $('#nav').addEventListener('click', e=>{
   document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id==='v-'+b.dataset.v));
   if(b.dataset.v==='reports' && !S.historyRan) runHistory();
-  if(b.dataset.v==='jobs' && !S.job) renderJobs();
+  if(b.dataset.v==='jobs'){ if(S.job) renderJob(); else renderJobs(); }
 });
 
 /* =====================================================================
@@ -489,7 +489,7 @@ function renderJobs(){
   $('#jTable tbody').innerHTML = list.map(j=>`<tr data-id="${j.id}" style="cursor:pointer">
     <td class="pad mono">${esc(j.job_number)}</td><td class="pad"><b>${esc(j.name)}</b>${j.location?`<div class="hint">${esc(j.location)}</div>`:''}</td><td class="pad">${esc(j.owner)}</td>
     <td class="pad">${j.bid_date?new Date(j.bid_date+'T12:00').toLocaleDateString('en-US'):''}</td><td class="pad">${esc(j.revision)}</td>
-    <td class="pad"><span class="tag ${j.status==='Won'?'ok':j.status==='Lost'?'warn':j.status==='Submitted'?'new':'same'}">${esc(j.status)}</span></td>
+    <td class="pad"><span class="tag ${j.status==='Won'?'ok':j.status==='Lost'?'warn':j.status==='Submitted'?'new':'same'}">${esc(j.status)}</span>${j.locked?' <span title="Locked">🔒</span>':''}</td>
     <td class="r pad num">${money(j.total)}</td><td class="pad hint">${fdate(j.updated_at)}</td>
     <td class="pad" style="white-space:nowrap"><button class="icon-btn" data-act="dup" title="Copy as new revision">⧉</button><button class="icon-btn" data-act="del" title="Delete">✕</button></td></tr>`).join('')
     || `<tr><td colspan="9" class="empty">No estimates yet. Click “+ New Estimate” to start one.</td></tr>`;
@@ -533,7 +533,7 @@ async function duplicateJob(id){
   const ids=bi.data.map(b=>b.id); let bl={data:[]}; if(ids.length){ bl=await sb.from('bid_lines').select('*').in('bid_item_id',ids); if(await dbErr(bl,'Copy')) return; }
   const nextRev = (()=>{ const m=String(src.revision||'R0').match(/(\d+)/); return 'R'+((m?+m[1]:0)+1); })();
   const {id:_, created_at, updated_at, ...rest}=src;
-  const nj={...rest, id:uuid(), revision:nextRev, status:'Draft', created_by:S.user};
+  const nj={...rest, id:uuid(), revision:nextRev, status:'Draft', locked:false, created_by:S.user};
   if(await dbErr(await sb.from('jobs').insert(nj),'Copy')) return;
   const map={}; const nbi=bi.data.map(b=>{ const n={...b, id:uuid(), job_id:nj.id}; delete n.created_at; map[b.id]=n.id; return n; });
   if(nbi.length && await dbErr(await sb.from('bid_items').insert(nbi),'Copy')) return;
@@ -562,7 +562,7 @@ const jobOp = id => (S.job.ops||[]).find(o=>o.id===id);
 const lineTQ = (l,biq) => l.qty_mode==='per' ? Number(l.qty)*Number(biq||0) : Number(l.qty);
 const isSuper = o => o && /superintend/i.test(o.name||'');
 const superOp = () => (S.job.ops||[]).find(isSuper);
-async function ensureSuperOp(){ if(!S.bis.some(b=>b.is_mob) || superOp()) return; const co=S.ops.find(o=>o.active && isSuper(o)); if(co) await ensureJobOps([co.id]); }
+async function ensureSuperOp(){ if(S.job.locked || !S.bis.some(b=>b.is_mob) || superOp()) return; const co=S.ops.find(o=>o.active && isSuper(o)); if(co) await ensureJobOps([co.id]); }
 function mobCalc(bi){
   const J=S.job; const base=S.bis.filter(x=>!x.is_mob).reduce((s,x)=>s+calcItem(x).hrs,0);
   const pct=Number(J.mob_pct ?? 0.05), hrs=base*pct, rate=Number(J.super_rate ?? J.labor_rate), so=superOp();
@@ -606,20 +606,23 @@ function refreshTotals(){
   clearTimeout(totalTimer);
   totalTimer=setTimeout(async ()=>{ const v=Math.round(t.amount*100)/100; if(Number(S.job.total)!==v){ S.job.total=v; await sb.from('jobs').update({total:v}).eq('id',S.job.id); const lj=S.jobs.find(x=>x.id===S.job.id); if(lj){ lj.total=v; lj.updated_at=new Date().toISOString(); } } },800);
 }
+const LOCK_STATUSES=['Submitted','Won','Lost'];
+function lockedMsg(){ toast('This bid is locked. Unlock it or copy it as a new revision to make changes.',true); return false; }
 async function saveJob(patch){
+  if(S.job.locked && Object.keys(patch).some(k=>!['locked','status','total'].includes(k))) return lockedMsg();
   Object.assign(S.job,patch); const r=await sb.from('jobs').update(patch).eq('id',S.job.id); if(await dbErr(r)) return false;
   const lj=S.jobs.find(x=>x.id===S.job.id); if(lj){ Object.keys(patch).forEach(k=>{ if(k in lj) lj[k]=patch[k]; }); lj.updated_at=new Date().toISOString(); }
   return true;
 }
-async function saveBI(id, patch){ const b=S.bis.find(x=>x.id===id); Object.assign(b,patch); const r=await sb.from('bid_items').update(patch).eq('id',id); return !(await dbErr(r)); }
-async function saveBL(id, patch){ const l=S.bls.find(x=>x.id===id); Object.assign(l,patch); const r=await sb.from('bid_lines').update(patch).eq('id',id); return !(await dbErr(r)); }
+async function saveBI(id, patch){ if(S.job?.locked) return lockedMsg(); const b=S.bis.find(x=>x.id===id); Object.assign(b,patch); const r=await sb.from('bid_items').update(patch).eq('id',id); return !(await dbErr(r)); }
+async function saveBL(id, patch){ if(S.job?.locked) return lockedMsg(); const l=S.bls.find(x=>x.id===id); Object.assign(l,patch); const r=await sb.from('bid_lines').update(patch).eq('id',id); return !(await dbErr(r)); }
 
 function renderJob(){
   const J=S.job, t=jobTotals();
   $('#jobWs').innerHTML = `
     <div class="job-top">
       <div class="job-title">
-        <button class="btn sec sm" id="jBack">← All Estimates</button>
+        <button class="btn sec sm" id="jBack" data-keep="1">← All Estimates</button>
         <input class="big" id="jName" value="${esc(J.name)}" style="margin-top:8px">
         <div class="job-meta">
           <div class="m"><label>Job / Bid #</label><input data-j="job_number" value="${esc(J.job_number)}"></div>
@@ -632,19 +635,90 @@ function renderJob(){
       </div>
       <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
         <div class="job-total"><div class="l">Total Bid</div><div class="v num" id="jTotalV">${money(t.amount)}</div><div class="s" id="jTotalS">${num(t.hrs,0)} man-hours · ${S.bis.length} bid items</div></div>
-        <div style="display:flex;gap:6px"><button class="btn sec sm" id="jImp">Import Bid Items</button><button class="btn sec sm" id="jXls">Export Bid Sheets (Excel)</button><button class="btn dark sm" id="jPdf">Proposal PDF</button></div>
+        <div style="display:flex;gap:6px"><button class="btn sec sm" id="jLock" data-keep="1">${J.locked?'🔓 Unlock':'🔒 Lock'}</button><button class="btn sec sm" id="jImp">Import Bid Items</button><button class="btn sec sm" id="jXls" data-keep="1">Export Bid Sheets (Excel)</button><button class="btn dark sm" id="jPdf" data-keep="1">Proposal PDF</button></div>
       </div>
     </div>
+    <div id="jSync"></div>
     <div class="subtabs" id="jTabs">
       <button data-t="sheet">Bid Sheet</button><button data-t="detail">Item Backup</button><button data-t="rates">Rates &amp; Crews</button><button data-t="proposal">Proposal</button>
     </div>
     <div id="jBody"></div>`;
   $('#jBack').onclick=closeJob;
   $('#jName').onchange=e=>{ const v=e.target.value.trim(); if(v) saveJob({name:v}); };
-  $('#jobWs .job-meta').addEventListener('change', e=>{ const k=e.target.dataset.j; if(!k) return; saveJob({[k]: e.target.value.trim()||null}).then(ok=>flash(e.target,ok)); });
+  $('#jobWs .job-meta').addEventListener('change', async e=>{ const k=e.target.dataset.j; if(!k) return; const v=e.target.value.trim()||null; const patch={[k]:v};
+    if(k==='status' && LOCK_STATUSES.includes(v) && !S.job.locked){ patch.locked=true; }
+    const ok=await saveJob(patch); flash(e.target,ok); if(patch.locked){ toast(`Locked — status is ${v}. Catalog changes won't touch this bid.`); renderJob(); } });
+  $('#jLock').onclick=toggleLock;
   $('#jTabs').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; S.jobTab=b.dataset.t; renderJobBody(); };
   $('#jImp').onclick=openBidImport; $('#jXls').onclick=exportBidSheets; $('#jPdf').onclick=()=>{ S.jobTab='proposal'; renderJobBody(); };
-  renderJobBody();
+  renderJobBody(); renderSync(); applyLockUI();
+}
+async function toggleLock(){
+  if(S.job.locked){ if(!confirm(`Unlock “${S.job.name}”? It will be editable again and can receive catalog price updates.\n\nTip: to keep the sent version as-is, use the copy button on the Estimates list to make a new revision instead.`)) return;
+    await saveJob({locked:false}); toast('Unlocked'); }
+  else { await saveJob({locked:true}); toast('Locked — catalog changes won\'t touch this bid'); }
+  renderJob();
+}
+function applyLockUI(){
+  const ws=$('#jobWs'); if(!ws || !S.job) return; const L=!!S.job.locked;
+  ws.querySelectorAll('input, select, textarea, button').forEach(el=>{
+    if(el.closest('#jTabs') || el.dataset.keep || el.dataset.act==='open' || el.id==='prPrev' || el.id==='prDl') return;
+    el.disabled=L; });
+}
+new MutationObserver(()=>{ if(S.job?.locked) applyLockUI(); }).observe(document.getElementById('jobWs'),{childList:true,subtree:true});
+
+/* ---------- Catalog → bid updates ---------- */
+const near=(a,b)=>Math.abs(Number(a||0)-Number(b||0))<1e-9;
+function catalogDiffs(){
+  const out={price:[], parts:[]}; if(!S.job) return out;
+  S.bls.forEach(l=>{ if(!l.item_id) return; const i=itemById(l.item_id); if(!i) return;
+    const cp=l.cat_price ?? l.unit_price, cl=l.cat_labor ?? l.labor_hours, np=Number(i.unit_price), nl=Number(i.labor_hours);
+    if(near(np,cp) && near(nl,cl)) return; if(near(l.unit_price,np) && near(l.labor_hours,nl)) return;
+    const b=S.bis.find(x=>x.id===l.bid_item_id); if(!b) return;
+    out.price.push({l, i, b, np, nl, edited: !near(l.unit_price,cp) || !near(l.labor_hours,cl)}); });
+  S.bis.forEach(b=>{ const seen=b.asm_seen||{}; Object.keys(seen).forEach(aid=>{ const a=S.assemblies.find(x=>x.id===aid); if(!a) return;
+    const known=new Set(seen[aid]||[]); const ref=S.bls.find(l=>l.bid_item_id===b.id && l.assembly_id===aid); const mult=Number(ref?.asm_mult ?? 1);
+    S.lines.filter(p=>p.assembly_id===aid && !p.optional && !known.has(p.id)).forEach(p=>{ const i=itemById(p.item_id); if(i) out.parts.push({b, a, p, i, mult}); }); }); });
+  return out;
+}
+function renderSync(){
+  const box=$('#jSync'); if(!box) return;
+  if(S.job.locked){ box.innerHTML=`<div class="card panel-h" style="margin-bottom:12px;background:#f3f4f6"><b>🔒 Locked${LOCK_STATUSES.includes(S.job.status)?' — '+esc(S.job.status):''}</b><span class="hint">View only. Catalog price changes will not affect this bid. You can still export Excel and the proposal PDF.</span><span class="spacer"></span><button class="btn sm sec" data-keep="1" id="syUnlock">🔓 Unlock</button></div>`; $('#syUnlock').onclick=toggleLock; return; }
+  const d=catalogDiffs(); const n=d.price.length+d.parts.length;
+  if(!n){ box.innerHTML=''; return; }
+  box.innerHTML=`<div class="card panel-h" style="margin-bottom:12px;background:#fff1e8;border-color:#ffd3b8"><b>Catalog updates available</b><span class="hint">${d.price.length?`${d.price.length} price/labor change${d.price.length>1?'s':''}`:''}${d.price.length&&d.parts.length?' · ':''}${d.parts.length?`${d.parts.length} new assembly part${d.parts.length>1?'s':''}`:''} since these lines were added.</span><span class="spacer"></span><button class="btn sm" id="syReview">Review &amp; update</button></div>`;
+  $('#syReview').onclick=openSyncReview;
+}
+function openSyncReview(){
+  const d=catalogDiffs();
+  const pr=d.price.map((x,k)=>`<tr><td class="c"><input type="checkbox" data-pk="${k}" ${x.edited?'':'checked'}></td><td class="pad mono">${esc(x.b.item_no)}</td><td class="pad">${esc(x.l.description)}${x.edited?' <span class="tag man" title="This line was changed by hand on this bid">edited on this bid</span>':''}</td>
+    <td class="r pad num">${near(x.l.unit_price,x.np)?money(x.np):`<span class="hint">${money(x.l.unit_price)} →</span> <b>${money(x.np)}</b>`}</td><td class="r pad num">${near(x.l.labor_hours,x.nl)?num(x.nl,4):`<span class="hint">${num(x.l.labor_hours,4)} →</span> <b>${num(x.nl,4)}</b>`}</td></tr>`).join('');
+  const pa=d.parts.map((x,k)=>`<tr><td class="c"><input type="checkbox" data-nk="${k}" checked></td><td class="pad mono">${esc(x.b.item_no)}</td><td class="pad"><b>${esc(x.i.description)}</b> <span class="hint">added to ${esc(x.a.name)}</span></td><td class="r pad num">${num(x.p.qty_per*x.mult,4)} / ${esc(x.b.unit)}</td><td class="r pad num">${money(x.i.unit_price)}</td></tr>`).join('');
+  modal(`<div class="modal-h"><h3>Update this bid from the catalog</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b" style="max-height:65vh;overflow:auto">
+      ${pr?`<h4 style="margin:0 0 8px">Price &amp; labor changes</h4><div class="card"><table class="grid"><thead><tr><th style="width:40px"></th><th style="width:90px">Bid Item</th><th>Line</th><th class="r" style="width:190px">Unit Price</th><th class="r" style="width:150px">Hrs/Unit</th></tr></thead><tbody>${pr}</tbody></table></div>`:''}
+      ${pa?`<h4 style="margin:18px 0 8px">New parts in assemblies used on this bid</h4><div class="card"><table class="grid"><thead><tr><th style="width:40px"></th><th style="width:90px">Bid Item</th><th>Part</th><th class="r" style="width:150px">Qty</th><th class="r" style="width:120px">Price</th></tr></thead><tbody>${pa}</tbody></table></div>`:''}
+      <p class="hint" style="margin-bottom:0">Lines changed by hand on this bid start unticked. Anything left unticked stays as-is and will be offered again later, unless you click “Keep this bid's prices”.</p>
+    </div>
+    <div class="modal-f"><button class="btn sec" id="syDismiss" style="margin-right:auto">Keep this bid's prices</button><button class="btn sec" data-close>Cancel</button><button class="btn" id="syApply">Update selected</button></div>`, true);
+  const markSeen=async (b, aid, ids)=>{ const s={...(b.asm_seen||{})}; s[aid]=[...new Set([...(s[aid]||[]), ...ids])]; await saveBI(b.id,{asm_seen:s}); };
+  $('#syApply').onclick=async ()=>{
+    $('#syApply').disabled=true;
+    const pk=[...document.querySelectorAll('[data-pk]:checked')].map(x=>d.price[+x.dataset.pk]);
+    const nk=[...document.querySelectorAll('[data-nk]:checked')].map(x=>d.parts[+x.dataset.nk]);
+    await Promise.all(pk.map(x=>saveBL(x.l.id,{unit_price:x.np, labor_hours:x.nl, cat_price:x.np, cat_labor:x.nl, vendor:x.i.vendor, quote_url:x.i.quote_url})));
+    const byBi=new Map(); nk.forEach(x=>{ if(!byBi.has(x.b.id)) byBi.set(x.b.id,[]); byBi.get(x.b.id).push(x); });
+    for(const [bid,list] of byBi){ const b=S.bis.find(x=>x.id===bid);
+      await addLines(b, list.map(x=>lineFromItem(x.i, Math.round(x.p.qty_per*x.mult*1e6)/1e6, 'per', x.a.name, x.p.cost_code, {assembly_id:x.a.id, assembly_item_id:x.p.id, asm_mult:x.mult})));
+      const byA={}; list.forEach(x=>{ (byA[x.a.id]=byA[x.a.id]||[]).push(x.p.id); }); for(const aid in byA) await markSeen(b, aid, byA[aid]); }
+    closeModal(); renderJob(); refreshTotals(); toast(`Updated ${pk.length+nk.length} line${pk.length+nk.length===1?'':'s'} from the catalog`);
+  };
+  $('#syDismiss').onclick=async ()=>{
+    await Promise.all(d.price.map(x=>saveBL(x.l.id,{cat_price:x.np, cat_labor:x.nl})));
+    const g={}; d.parts.forEach(x=>{ const k=x.b.id+'|'+x.a.id; (g[k]=g[k]||{b:x.b,aid:x.a.id,ids:[]}).ids.push(x.p.id); });
+    for(const k in g) await markSeen(g[k].b, g[k].aid, g[k].ids);
+    closeModal(); renderSync(); toast('Kept this bid\'s prices');
+  };
 }
 function renderJobBody(){
   document.querySelectorAll('#jTabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===S.jobTab));
@@ -840,6 +914,7 @@ async function ensureJobOps(opIds){
   if(!missing.length) return; await saveJob({ops:[...S.job.ops, ...missing.map(snapshotOp)]});
 }
 async function addLines(b, recs){
+  if(S.job?.locked) return lockedMsg();
   let s=Math.max(0,...linesOf(b.id).map(l=>l.sort||0));
   const rows=recs.map(r=>({bid_item_id:b.id, sort:++s, ...r}));
   const res=await sb.from('bid_lines').insert(rows).select(); if(await dbErr(res,'Add')) return false;
@@ -847,8 +922,8 @@ async function addLines(b, recs){
   if(S.jobTab==='detail' && S.biSel===b.id){ renderBd(); refreshBiList(); }
   refreshTotals(); return true;
 }
-function lineFromItem(i, qty, mode, source, ccOverride){ return { item_id:i.id, description:i.description, unit:i.unit, cost_code:ccOverride||i.cost_code, operation_id:i.operation_id,
-  qty, qty_mode:mode||'per', unit_price:Number(i.unit_price), labor_hours:Number(i.labor_hours), vendor:i.vendor, quote_url:i.quote_url, source }; }
+function lineFromItem(i, qty, mode, source, ccOverride, asm){ return { item_id:i.id, description:i.description, unit:i.unit, cost_code:ccOverride||i.cost_code, operation_id:i.operation_id,
+  qty, qty_mode:mode||'per', unit_price:Number(i.unit_price), labor_hours:Number(i.labor_hours), cat_price:Number(i.unit_price), cat_labor:Number(i.labor_hours), vendor:i.vendor, quote_url:i.quote_url, source, ...(asm||{}) }; }
 
 function pickAssembly(b){
   const draw=()=>{ const q=($('#paQ')?.value||'').trim().toLowerCase();
@@ -882,9 +957,9 @@ function pickParts(b, a){
   $('#ppBack').onclick=()=>pickAssembly(b);
   $('#ppGo').onclick=async ()=>{ const mult=parseNum($('#ppMult').value); if(mult==null) return toast('Enter a number for assemblies per unit',true);
     const recs=[]; document.querySelectorAll('#ppL .p').forEach(el=>{ if(!el.querySelector('input[type=checkbox]').checked) return; const p=parts.find(x=>x.id===el.dataset.pid), i=itemById(p.item_id); if(!i) return;
-      const q=parseNum(el.querySelector('.q').value); recs.push(lineFromItem(i, Math.round((q??p.qty_per)*mult*1e6)/1e6, 'per', a.name, p.cost_code)); });
+      const q=parseNum(el.querySelector('.q').value); recs.push(lineFromItem(i, Math.round((q??p.qty_per)*mult*1e6)/1e6, 'per', a.name, p.cost_code, {assembly_id:a.id, assembly_item_id:p.id, asm_mult:mult})); });
     if(!recs.length) return toast('Nothing selected',true);
-    closeModal(); if(await addLines(b,recs)) toast(`Added ${recs.length} lines from ${a.name}`); };
+    closeModal(); if(await addLines(b,recs)){ await saveBI(b.id,{asm_seen:{...(b.asm_seen||{}), [a.id]:parts.map(p=>p.id)}}); toast(`Added ${recs.length} lines from ${a.name}`); } };
 }
 function pickCatalog(b){
   const sel=new Map();
@@ -1117,14 +1192,16 @@ async function applyBidImport(){
   $('#biGo').disabled=true; $('#biGo').textContent='Importing…';
   if(replace){ if(await dbErr(await sb.from('bid_items').delete().eq('job_id',S.job.id),'Replace')) return; S.bis=[]; S.bls=[]; }
   let s=Math.max(0,...S.bis.map(b=>b.sort||0));
-  const recs=rows.map(r=>({id:uuid(), job_id:S.job.id, item_no:r.item_no||null, description:r.description, qty:r.qty, unit:r.unit, sort:++s, is_mob:/mobiliz/i.test(r.description)}));
+  const linkedOf=no=>S.assemblies.filter(a=>a.active!==false && (a.bid_item_codes||'').split(',').map(normCode).filter(Boolean).includes(normCode(no)));
+  const recs=rows.map(r=>{ const seen={}; if(auto) linkedOf(r.item_no).forEach(a=>{ seen[a.id]=S.lines.filter(p=>p.assembly_id===a.id).map(p=>p.id); });
+    return {id:uuid(), job_id:S.job.id, item_no:r.item_no||null, description:r.description, qty:r.qty, unit:r.unit, sort:++s, is_mob:/mobiliz/i.test(r.description), asm_seen:seen}; });
   if(await dbErr(await sb.from('bid_items').insert(recs),'Import')) return;
   S.bis.push(...recs.map(r=>({...r, manual_unit_price:null, day_overrides:{}, in_proposal:true})));
   let built=0;
   if(auto){ const lines=[];
-    recs.forEach(b=>{ const la=S.assemblies.filter(a=>a.active!==false && (a.bid_item_codes||'').split(',').map(normCode).filter(Boolean).includes(normCode(b.item_no)));
+    recs.forEach(b=>{ const la=linkedOf(b.item_no);
       let so=0; la.forEach(a=>{ S.lines.filter(l=>l.assembly_id===a.id && !l.optional).sort((x,y)=>(x.sort||0)-(y.sort||0)).forEach(p=>{ const i=itemById(p.item_id); if(!i) return;
-        lines.push({id:uuid(), bid_item_id:b.id, sort:++so, ...lineFromItem(i, Number(p.qty_per), 'per', a.name, p.cost_code)}); }); if(la.length) built++; }); });
+        lines.push({id:uuid(), bid_item_id:b.id, sort:++so, ...lineFromItem(i, Number(p.qty_per), 'per', a.name, p.cost_code, {assembly_id:a.id, assembly_item_id:p.id, asm_mult:1})}); }); if(la.length) built++; }); });
     for(let i=0;i<lines.length;i+=500){ if(await dbErr(await sb.from('bid_lines').insert(lines.slice(i,i+500)),'Build')) break; }
     S.bls.push(...lines); await ensureJobOps(lines.map(l=>l.operation_id)); }
   await ensureSuperOp(); closeModal(); S.jobTab='sheet'; renderJob(); refreshTotals();
