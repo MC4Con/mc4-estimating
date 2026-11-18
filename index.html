@@ -102,6 +102,10 @@ select.cell{padding:5px 2px}
 .icon-btn:hover{background:var(--line2);color:var(--text)}
 .qlink{font-size:12px;white-space:nowrap}
 .note-flag{color:var(--accent-d);font-size:12px;cursor:help}
+.grid tr.hl td{background:#fff3a3}
+.grid tr.hl:hover td{background:#ffec80}
+.pick-list .p.hl,.pick-list .p.hl.on{background:#fff3a3}
+.pick-list .p.hl:hover{background:#ffec80}
 .mode{border:1px solid var(--line);background:#fff;border-radius:5px;font-size:11px;padding:3px 6px;color:var(--muted);white-space:nowrap}
 .mode.per{color:var(--blue);border-color:#c7d9f3;background:#f2f7fe}
 
@@ -827,8 +831,8 @@ function renderBd(){
   renderBdEquip(); renderBdSum();
 }
 function blRowHtml(l,b){
-  const tq=lineTQ(l,b.qty); const q=safeUrl(l.quote_url);
-  return `<tr data-lid="${l.id}">
+  const tq=lineTQ(l,b.qty); const q=safeUrl(l.quote_url); const ci=l.item_id?itemById(l.item_id):null;
+  return `<tr data-lid="${l.id}" class="${ci&&ci.highlight?'hl':''}">
     <td><input class="cell" data-f="description" value="${esc(l.description)}" title="${esc(l.source?('From: '+l.source):'')}"></td>
     <td><select class="cell" data-f="cost_code">${codeOptions(l.cost_code,'—')}</select></td>
     <td><select class="cell" data-f="operation_id">${opOptions(l.operation_id,'—')}</select></td>
@@ -944,7 +948,7 @@ function pickParts(b, a){
         <div class="hint" style="flex:1">Tick the parts to bring into <b>${esc(b.item_no||'')} ${esc(b.description)}</b>. Quantities are per ${esc(a.unit)} of the assembly. You can still change anything after it's added.</div>
         <div><button class="btn sm sec" id="ppAll">All</button> <button class="btn sm sec" id="ppNone">None</button></div>
       </div>
-      <div class="pick-list" id="ppL">${parts.map(p=>{ const i=p.i; const v=p.via.join(' › '); const hdr = v!==lastVia ? `<div style="padding:7px 12px;background:#f4f4f4;font-weight:600;font-size:12px;border-bottom:1px solid var(--line2)">${v?'Sub-assembly: '+esc(v):esc(a.name)}</div>` : ''; lastVia=v; return hdr+`<label class="p ${p.optional?'':'on'}" data-pid="${p.key}" ${v?'style="padding-left:26px"':''}>
+      <div class="pick-list" id="ppL">${parts.map(p=>{ const i=p.i; const v=p.via.join(' › '); const hdr = v!==lastVia ? `<div style="padding:7px 12px;background:#f4f4f4;font-weight:600;font-size:12px;border-bottom:1px solid var(--line2)">${v?'Sub-assembly: '+esc(v):esc(a.name)}</div>` : ''; lastVia=v; return hdr+`<label class="p ${p.optional?'':'on'} ${i.highlight?'hl':''}" data-pid="${p.key}" ${v?'style="padding-left:26px"':''}>
         <input type="checkbox" ${p.optional?'':'checked'}> <span class="d">${esc(i.description)}${p.optional?' <span class="tag same">optional</span>':''}${i.active===false?' <span class="tag warn">inactive</span>':''}</span>
         <span class="c">${esc(p.cost_code||i.cost_code||'')}</span><span class="c num">${money(i.unit_price)}/${esc(i.unit)}</span>
         <input class="q num" value="${num(p.qty,6)}" title="Qty per ${esc(a.unit)}"></label>`; }).join('') || '<div class="empty">This assembly has no parts.</div>'}</div>
@@ -970,7 +974,7 @@ function pickCatalog(b){
     <div class="modal-f"><span class="hint" id="pcN" style="margin-right:auto">0 selected</span><button class="btn sec" data-close>Cancel</button><button class="btn" id="pcGo">Add</button></div>`, true);
   const draw=()=>{ const q=$('#pcQ').value.trim().toLowerCase(), c=$('#pcC').value;
     $('#pcL').innerHTML = S.items.filter(i=>i.active&&(!c||i.cost_code===c)&&(!q||i.description.toLowerCase().includes(q)||(i.vendor||'').toLowerCase().includes(q))).sort((a,b)=>a.description.localeCompare(b.description)).slice(0,300)
-      .map(i=>`<label class="p ${sel.has(i.id)?'on':''}" data-id="${i.id}"><input type="checkbox" ${sel.has(i.id)?'checked':''}><span class="d">${esc(i.description)}</span><span class="c">${esc(i.cost_code||'')}</span><span class="c num">${money(i.unit_price)}/${esc(i.unit)}</span><input class="q num" value="${sel.get(i.id)??1}" title="Qty"></label>`).join('') || '<div class="empty">No matches</div>'; };
+      .map(i=>`<label class="p ${sel.has(i.id)?'on':''} ${i.highlight?'hl':''}" data-id="${i.id}"><input type="checkbox" ${sel.has(i.id)?'checked':''}><span class="d">${esc(i.description)}</span><span class="c">${esc(i.cost_code||'')}</span><span class="c num">${money(i.unit_price)}/${esc(i.unit)}</span><input class="q num" value="${sel.get(i.id)??1}" title="Qty"></label>`).join('') || '<div class="empty">No matches</div>'; };
   $('#pcQ').oninput=draw; $('#pcC').onchange=draw; draw(); $('#pcQ').focus();
   $('#pcL').onclick=e=>{ if(e.target.classList.contains('q')) e.preventDefault(); };
   $('#pcL').oninput=e=>{ const lab=e.target.closest('.p'); const id=lab.dataset.id; const cb=lab.querySelector('input[type=checkbox]');
@@ -1248,7 +1252,7 @@ function filteredItems(){
 }
 function itemRow(i){
   const q=safeUrl(i.quote_url);
-  return `<tr data-id="${i.id}" class="${i.active?'':'inactive'}">
+  return `<tr data-id="${i.id}" class="${i.active?'':'inactive'} ${i.highlight?'hl':''}">
     <td><input class="cell" data-f="description" value="${esc(i.description)}"></td>
     <td><input class="cell" data-f="unit" list="unitList" value="${esc(i.unit)}"></td>
     <td><select class="cell" data-f="cost_code">${codeOptions(i.cost_code,'—')}</select></td>
@@ -1323,6 +1327,7 @@ async function openItem(id){
         <div class="fld"><label>Vendor</label><input id="fVendor" value="${esc(i.vendor)}"></div>
         <div class="fld"><label>Manufacturer</label><input id="fMfr" value="${esc(i.manufacturer)}"></div>
         <div class="fld"><label>Part Number</label><input id="fPart" value="${esc(i.part_number)}"></div>
+        <div class="fld"><label>Highlight</label><label class="chk" style="padding:9px 0;color:var(--text)"><input type="checkbox" id="fHl" ${i.highlight?'checked':''}> <span style="background:#fff3a3;padding:2px 6px;border-radius:4px">Yellow</span> wherever it's used (e.g. quotes)</label></div>
         <div class="fld"><label>Status</label><select id="fActive"><option value="1" ${i.active?'selected':''}>Active</option><option value="0" ${!i.active?'selected':''}>Inactive</option></select></div>
         <div class="fld full"><label>Quote Link</label><input id="fQuote" placeholder="https://… (SharePoint, Google Drive, Dropbox link to the quote)" value="${esc(i.quote_url)}"></div>
         <div class="fld full"><label>Notes</label><textarea id="fNotes">${esc(i.notes)}</textarea></div>
@@ -1342,7 +1347,7 @@ async function openItem(id){
     if(q && !safeUrl(q)) return toast('Quote link must start with http:// or https://',true);
     const rec = { description:$('#fDesc').value.trim(), unit:$('#fUnit').value.trim()||'ea', cost_code:$('#fCode').value||null, unit_price:price, labor_hours:labor, operation_id:$('#fOp').value||null,
       vendor:$('#fVendor').value.trim()||null, manufacturer:$('#fMfr').value.trim()||null, part_number:$('#fPart').value.trim()||null,
-      quote_url:q||null, notes:$('#fNotes').value.trim()||null, active:$('#fActive').value==='1' };
+      quote_url:q||null, notes:$('#fNotes').value.trim()||null, active:$('#fActive').value==='1', highlight:$('#fHl').checked };
     if(id){ if(!await saveItem(id,rec)) return; }
     else { const { data, error } = await sb.from('catalog_items').insert(rec).select().single(); if(error) return toast(error.message,true); S.items.push(data); }
     closeModal(); renderItems(); toast('Saved');
@@ -1416,7 +1421,7 @@ function renderAsmDetail(){
     <div style="overflow:auto"><table class="grid" id="alTable"><thead><tr>
       <th>Item</th><th style="width:60px">Unit</th><th class="r" style="width:110px">Qty per</th><th style="width:170px">Cost Code</th><th class="c" style="width:80px">Optional</th>
       <th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Material</th><th class="r" style="width:95px">Labor Hrs</th><th style="width:40px"></th></tr></thead>
-      <tbody>${ls.map(l=>{ if(l.child_assembly_id) return subRowHtml(l); const i=itemById(l.item_id)||{description:'(missing item)'}; return `<tr data-lid="${l.id}" class="${i.active===false?'inactive':''}">
+      <tbody>${ls.map(l=>{ if(l.child_assembly_id) return subRowHtml(l); const i=itemById(l.item_id)||{description:'(missing item)'}; return `<tr data-lid="${l.id}" class="${i.active===false?'inactive':''} ${i.highlight?'hl':''}">
         <td class="pad">${esc(i.description)}</td><td class="hint pad">${esc(i.unit)}</td>
         <td><input class="cell num" data-f="qty_per" value="${num(l.qty_per,6)}"></td>
         <td><select class="cell" data-f="cost_code">${codeOptions(l.cost_code, i.cost_code?'Item default ('+i.cost_code+')':'—')}</select></td>
@@ -1437,11 +1442,11 @@ function renderAsmDetail(){
   $('#aCode').onchange = e=> saveA({cost_code:e.target.value||null});
   $('#aNotes').onchange = e=> saveA({notes:e.target.value.trim()||null});
   $('#aCodes').onchange = e=> saveA({bid_item_codes:e.target.value.split(',').map(s=>s.trim()).filter(Boolean).join(', ')||null}).then(()=>flash(e.target,true));
-  $('#aAdd').onclick = ()=> pickItem(async pick=>{
-    const rec={assembly_id:a.id,qty_per:1,sort:(ls.length?Math.max(...ls.map(l=>l.sort||0)):0)+1}; if(pick.asm) rec.child_assembly_id=pick.asm.id; else rec.item_id=pick.id;
-    const {data,error}=await sb.from('assembly_items').insert(rec).select().single();
-    if(error) return toast(error.message,true); S.lines.push(data); renderAsmDetail(); renderAsmList();
-    const inp=document.querySelector(`#alTable tr[data-lid="${data.id}"] [data-f="qty_per"]`); if(inp){ inp.focus(); inp.select(); }
+  $('#aAdd').onclick = ()=> pickItem(async picks=>{
+    let s=ls.length?Math.max(...ls.map(l=>l.sort||0)):0;
+    const rows=picks.map(p=>({assembly_id:a.id, qty_per:p.qty, sort:++s, ...(p.asm?{child_assembly_id:p.asm.id}:{item_id:p.item.id})}));
+    const {data,error}=await sb.from('assembly_items').insert(rows).select();
+    if(error) return toast(error.message,true); S.lines.push(...data); renderAsmDetail(); renderAsmList(); toast(`Added ${data.length} to ${a.name}`);
   });
   $('#aDel').onclick = async ()=>{ const par=[...new Set(S.lines.filter(l=>l.child_assembly_id===a.id).map(l=>(asmById(l.assembly_id)||{}).name))]; if(par.length) return toast(`Used inside ${par.join(', ')} — remove it there first`,true); if(!confirm(`Delete assembly “${a.name}”? (Estimates keep their copied lines.)`)) return; const {error}=await sb.from('assemblies').delete().eq('id',a.id); if(error) return toast(error.message,true);
     S.assemblies=S.assemblies.filter(x=>x.id!==a.id); S.lines=S.lines.filter(l=>l.assembly_id!==a.id); S.asmSel=null; renderAsmList(); renderAsmDetail(); };
@@ -1460,7 +1465,7 @@ function renderAsmDetail(){
 }
 function subRowHtml(l){
   const ch=asmById(l.child_assembly_id)||{name:'(missing assembly)',unit:''}; const c=ch.id?asmCalc(ch.id):{mat:0,hrs:0}; const open=S.asmOpen&&S.asmOpen.has(l.id);
-  const kids = open&&ch.id ? expandAsm(ch.id, Number(l.qty_per)).map(x=>`<tr class="sub-kid"><td class="pad hint" style="padding-left:34px">↳ ${esc(x.i.description)}${x.via.length?` <span class="hint">(${x.via.map(esc).join(' › ')})</span>`:''}${x.optional?' <span class="tag same">optional</span>':''}</td><td class="hint pad">${esc(x.i.unit)}</td><td class="r num pad hint">${num(x.qty,4)}</td><td class="hint pad">${esc(x.cost_code||x.i.cost_code||'')}</td><td></td><td class="r num pad hint">${money(x.i.unit_price)}</td><td class="r num pad hint">${money(x.qty*x.i.unit_price)}</td><td class="r num pad hint">${num(x.qty*x.i.labor_hours,4)}</td><td></td></tr>`).join('') : '';
+  const kids = open&&ch.id ? expandAsm(ch.id, Number(l.qty_per)).map(x=>`<tr class="sub-kid ${x.i.highlight?'hl':''}"><td class="pad hint" style="padding-left:34px">↳ ${esc(x.i.description)}${x.via.length?` <span class="hint">(${x.via.map(esc).join(' › ')})</span>`:''}${x.optional?' <span class="tag same">optional</span>':''}</td><td class="hint pad">${esc(x.i.unit)}</td><td class="r num pad hint">${num(x.qty,4)}</td><td class="hint pad">${esc(x.cost_code||x.i.cost_code||'')}</td><td></td><td class="r num pad hint">${money(x.i.unit_price)}</td><td class="r num pad hint">${money(x.qty*x.i.unit_price)}</td><td class="r num pad hint">${num(x.qty*x.i.labor_hours,4)}</td><td></td></tr>`).join('') : '';
   return `<tr data-lid="${l.id}" style="background:#fffaf5">
     <td class="pad"><button class="icon-btn" data-act="tog" title="Show parts">${open?'▾':'▸'}</button> <b>${esc(ch.name)}</b> <span class="tag chg">assembly</span></td><td class="hint pad">${esc(ch.unit)}</td>
     <td><input class="cell num" data-f="qty_per" value="${num(l.qty_per,6)}"></td>
@@ -1470,22 +1475,31 @@ function subRowHtml(l){
     <td><button class="icon-btn" data-act="rm" title="Remove">✕</button></td></tr>${kids}`;
 }
 function pickItem(cb){
-  const parentId=S.asmSel;
+  const parentId=S.asmSel; const sel=new Map();
   modal(`<div class="modal-h"><h3>Add to Assembly</h3><button class="icon-btn" data-close>✕</button></div>
-    <div class="modal-b"><div style="display:flex;gap:8px"><select class="sel" id="pkK"><option value="item">Catalog items</option><option value="asm">Assemblies</option></select><input class="search" id="pkQ" placeholder="Search…" style="flex:1"><select class="sel" id="pkC">${codeOptions('','All cost codes')}</select></div><div class="pick-list" id="pkL"></div></div>`, true);
+    <div class="modal-b"><div style="display:flex;gap:8px"><select class="sel" id="pkK"><option value="item">Catalog items</option><option value="asm">Assemblies</option></select><input class="search" id="pkQ" placeholder="Search…" style="flex:1"><select class="sel" id="pkC">${codeOptions('','All cost codes')}</select></div><div class="pick-list" id="pkL"></div>
+    <p class="hint" style="margin:8px 0 0">Tick as many as you need (you can switch between items and assemblies — ticks are kept). Type a qty per to set it as you go.</p></div>
+    <div class="modal-f"><span class="hint" id="pkN" style="margin-right:auto">0 selected</span><button class="btn sec" data-close>Cancel</button><button class="btn" id="pkGo">Add Selected</button></div>`, true);
   const draw=()=>{ const q=$('#pkQ').value.trim().toLowerCase(), c=$('#pkC').value;
     if($('#pkK').value==='asm'){ $('#pkC').style.display='none';
       $('#pkL').innerHTML = S.assemblies.filter(x=>x.active!==false && x.id!==parentId && (!q||x.name.toLowerCase().includes(q))).sort((x,y)=>x.name.localeCompare(y.name)).map(x=>{
         const bad=asmContains(x.id,parentId); const cc=asmCalc(x.id);
-        return `<div class="p" data-aid="${x.id}" ${bad?'style="opacity:.5;cursor:not-allowed" title="Can\'t add: it already contains this assembly"':''}><span class="d"><b>${esc(x.name)}</b>${bad?' <span class="tag warn">would loop</span>':''}</span><span class="c">${expandAsm(x.id).length} parts</span><span class="c num">${money(cc.mat)}/${esc(x.unit)}</span></div>`; }).join('') || '<div class="empty">No other assemblies</div>';
+        const k='a:'+x.id;
+        return bad ? `<div class="p" style="opacity:.5;cursor:not-allowed" title="Can\'t add: it already contains this assembly"><span class="d"><b>${esc(x.name)}</b> <span class="tag warn">would loop</span></span><span class="c">${expandAsm(x.id).length} parts</span></div>`
+          : `<label class="p ${sel.has(k)?'on':''}" data-k="${k}"><input type="checkbox" ${sel.has(k)?'checked':''}><span class="d"><b>${esc(x.name)}</b> <span class="tag chg">assembly</span></span><span class="c">${expandAsm(x.id).length} parts</span><span class="c num">${money(cc.mat)}/${esc(x.unit)}</span><input class="q num" value="${sel.get(k)??1}" title="Qty per"></label>`; }).join('') || '<div class="empty">No other assemblies</div>';
       return; }
     $('#pkC').style.display='';
     $('#pkL').innerHTML = S.items.filter(i=>i.active&&(!c||i.cost_code===c)&&(!q||i.description.toLowerCase().includes(q)||(i.vendor||'').toLowerCase().includes(q))).sort((a,b)=>a.description.localeCompare(b.description)).slice(0,200)
-      .map(i=>`<div class="p" data-id="${i.id}"><span class="d">${esc(i.description)}</span><span class="c">${esc(i.cost_code||'')}</span><span class="c num">${money(i.unit_price)}/${esc(i.unit)}</span></div>`).join('') || '<div class="empty">No matches</div>'; };
+      .map(i=>{ const k='i:'+i.id; return `<label class="p ${sel.has(k)?'on':''} ${i.highlight?'hl':''}" data-k="${k}"><input type="checkbox" ${sel.has(k)?'checked':''}><span class="d">${esc(i.description)}</span><span class="c">${esc(i.cost_code||'')}</span><span class="c num">${money(i.unit_price)}/${esc(i.unit)}</span><input class="q num" value="${sel.get(k)??1}" title="Qty per"></label>`; }).join('') || '<div class="empty">No matches</div>'; };
   $('#pkQ').oninput=draw; $('#pkC').onchange=draw; $('#pkK').onchange=draw; draw(); $('#pkQ').focus();
-  $('#pkL').onclick=e=>{ const p=e.target.closest('.p'); if(!p) return;
-    if(p.dataset.aid){ if(asmContains(p.dataset.aid,parentId)) return toast('That assembly already contains this one — adding it would loop',true); closeModal(); cb({asm:asmById(p.dataset.aid)}); return; }
-    closeModal(); cb(itemById(p.dataset.id)); };
+  $('#pkL').onclick=e=>{ if(e.target.classList.contains('q')) e.preventDefault(); };
+  $('#pkL').oninput=e=>{ const lab=e.target.closest('label.p'); if(!lab) return; const k=lab.dataset.k, box=lab.querySelector('input[type=checkbox]');
+    if(e.target.classList.contains('q') && !box.checked) box.checked=true;
+    if(box.checked) sel.set(k, parseNum(lab.querySelector('.q').value)??1); else sel.delete(k);
+    lab.classList.toggle('on',box.checked); $('#pkN').textContent=sel.size+' selected'; };
+  $('#pkGo').onclick=()=>{ if(!sel.size) return toast('Nothing selected',true);
+    const picks=[...sel].map(([k,q])=>{ const [t,id]=k.split(':'); return t==='a' ? {asm:asmById(id), qty:q} : {item:itemById(id), qty:q}; }).filter(x=>x.asm||x.item);
+    closeModal(); cb(picks); };
 }
 
 /* =====================================================================
