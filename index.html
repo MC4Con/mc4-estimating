@@ -1337,12 +1337,12 @@ function equipData(){
 function renderReports(){
   const mh=manhourData(), eq=equipData(), kj=kojoCfg(), bom=bomData();
   $('#jBody').innerHTML = `<div class="two">
-    <div class="card"><div class="panel-h"><h3>Man-hours by Phase Code</h3><span class="spacer"></span><button class="btn sm sec" id="rpMhP">PDF</button><button class="btn sm" id="rpMh">Excel</button></div>
+    <div class="card"><div class="panel-h"><h3>Man-hours by Phase Code</h3><span class="spacer"></span><button class="btn sm sec" id="rpMhP" data-keep="1">PDF</button><button class="btn sm" id="rpMh" data-keep="1">Excel</button></div>
       <table class="grid"><thead><tr><th style="width:90px">Code</th><th>Phase</th><th class="r" style="width:120px">Man-hours</th><th class="r" style="width:80px">%</th></tr></thead><tbody>
       ${mh.byCode.map(r=>`<tr><td class="pad mono">${esc(r.code==='—'?'':r.code)}</td><td class="pad">${esc(r.name)}</td><td class="r num pad">${num(r.hrs,2)}</td><td class="r num pad hint">${mh.total?num(r.hrs/mh.total*100,1)+'%':''}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No labor yet</td></tr>'}
       </tbody><tfoot><tr><td colspan="2" class="r">Total man-hours</td><td class="r num">${num(mh.total,2)}</td><td></td></tr></tfoot></table>
       <p class="hint" style="padding:0 16px 8px">Includes superintendent (1010/1030) and material handling. The Excel also has a bid item × phase code grid.</p></div>
-    <div class="card"><div class="panel-h"><h3>Equipment Hours</h3><span class="spacer"></span><button class="btn sm sec" id="rpEqP">PDF</button><button class="btn sm" id="rpEq">Excel</button></div>
+    <div class="card"><div class="panel-h"><h3>Equipment Hours</h3><span class="spacer"></span><button class="btn sm sec" id="rpEqP" data-keep="1">PDF</button><button class="btn sm" id="rpEq" data-keep="1">Excel</button></div>
       <table class="grid"><thead><tr><th>Equipment</th><th class="r" style="width:100px">Hours</th><th class="r" style="width:90px">Days (8 hr)</th><th class="r" style="width:120px">Cost</th></tr></thead><tbody>
       ${eq.list.map(r=>`<tr><td class="pad">${esc(r.name)}</td><td class="r num pad">${num(r.hrs,2)}</td><td class="r num pad">${num(r.hrs/8,2)}</td><td class="r num pad">${money(r.cost)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No equipment yet</td></tr>'}
       </tbody><tfoot><tr><td class="r">Total</td><td class="r num">${num(eq.hrs,2)}</td><td class="r num">${num(eq.hrs/8,2)}</td><td class="r num">${money(eq.cost)}</td></tr></tfoot></table>
@@ -1351,7 +1351,7 @@ function renderReports(){
   <div class="card" style="margin-top:16px"><div class="panel-h"><h3>Bill of Materials (KOJO)</h3><span class="hint">${bom.length} materials · identical items combined · labor-only lines left off</span><span class="spacer"></span>
       <label class="chk">Phase Code <select class="sel" id="kjMode" style="padding:5px 8px"><option value="fixed" ${kj.mode!=='code'?'selected':''}>Same for all lines</option><option value="code" ${kj.mode==='code'?'selected':''}>Each line's cost code</option></select></label>
       ${kj.mode!=='code'?`<input class="sel" id="kjText" style="width:150px;padding:5px 8px" value="${esc(kj.text)}">`:''}
-      <button class="btn sm" id="rpBom">Download for KOJO (CSV)</button><button class="btn sm sec" id="rpBomX">Excel</button></div>
+      <button class="btn sm" id="rpBom" data-keep="1">Download for KOJO (CSV)</button><button class="btn sm sec" id="rpBomX" data-keep="1">Excel</button></div>
     <div style="max-height:420px;overflow:auto"><table class="grid"><thead><tr><th>Description</th><th class="r" style="width:100px">Est. Qty.</th><th style="width:60px">UOM</th><th style="width:110px">MPN</th><th style="width:80px">UPC</th><th class="r" style="width:100px">Unit Price</th><th style="width:140px">Phase Code</th><th class="r" style="width:120px">Extended</th></tr></thead><tbody>
     ${bom.map(r=>`<tr class="${r.hl?'hl':''}"><td class="pad">${esc(r.desc)}</td><td class="r num pad">${num(r.qty,4)}</td><td class="pad">${esc(r.uom)}</td><td class="pad mono">${esc(r.part)}</td><td class="pad"></td><td class="r num pad">${money(r.price)}</td><td class="pad">${esc(r.phase)}</td><td class="r num pad">${money(r.ext)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No materials yet</td></tr>'}
     </tbody><tfoot><tr><td colspan="7" class="r">Total material (before tax)</td><td class="r num">${money(bom.reduce((s,r)=>s+r.ext,0))}</td></tr></tfoot></table></div>
