@@ -1337,12 +1337,12 @@ function equipData(){
 function renderReports(){
   const mh=manhourData(), eq=equipData(), kj=kojoCfg(), bom=bomData();
   $('#jBody').innerHTML = `<div class="two">
-    <div class="card"><div class="panel-h"><h3>Man-hours by Phase Code</h3><span class="spacer"></span><button class="btn sm" id="rpMh">Download Excel</button></div>
+    <div class="card"><div class="panel-h"><h3>Man-hours by Phase Code</h3><span class="spacer"></span><button class="btn sm sec" id="rpMhP">PDF</button><button class="btn sm" id="rpMh">Excel</button></div>
       <table class="grid"><thead><tr><th style="width:90px">Code</th><th>Phase</th><th class="r" style="width:120px">Man-hours</th><th class="r" style="width:80px">%</th></tr></thead><tbody>
       ${mh.byCode.map(r=>`<tr><td class="pad mono">${esc(r.code==='—'?'':r.code)}</td><td class="pad">${esc(r.name)}</td><td class="r num pad">${num(r.hrs,2)}</td><td class="r num pad hint">${mh.total?num(r.hrs/mh.total*100,1)+'%':''}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No labor yet</td></tr>'}
       </tbody><tfoot><tr><td colspan="2" class="r">Total man-hours</td><td class="r num">${num(mh.total,2)}</td><td></td></tr></tfoot></table>
       <p class="hint" style="padding:0 16px 8px">Includes superintendent (1010/1030) and material handling. The Excel also has a bid item × phase code grid.</p></div>
-    <div class="card"><div class="panel-h"><h3>Equipment Hours</h3><span class="spacer"></span><button class="btn sm" id="rpEq">Download Excel</button></div>
+    <div class="card"><div class="panel-h"><h3>Equipment Hours</h3><span class="spacer"></span><button class="btn sm sec" id="rpEqP">PDF</button><button class="btn sm" id="rpEq">Excel</button></div>
       <table class="grid"><thead><tr><th>Equipment</th><th class="r" style="width:100px">Hours</th><th class="r" style="width:90px">Days (8 hr)</th><th class="r" style="width:120px">Cost</th></tr></thead><tbody>
       ${eq.list.map(r=>`<tr><td class="pad">${esc(r.name)}</td><td class="r num pad">${num(r.hrs,2)}</td><td class="r num pad">${num(r.hrs/8,2)}</td><td class="r num pad">${money(r.cost)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No equipment yet</td></tr>'}
       </tbody><tfoot><tr><td class="r">Total</td><td class="r num">${num(eq.hrs,2)}</td><td class="r num">${num(eq.hrs/8,2)}</td><td class="r num">${money(eq.cost)}</td></tr></tfoot></table>
@@ -1356,7 +1356,7 @@ function renderReports(){
     ${bom.map(r=>`<tr class="${r.hl?'hl':''}"><td class="pad">${esc(r.desc)}</td><td class="r num pad">${num(r.qty,4)}</td><td class="pad">${esc(r.uom)}</td><td class="pad mono">${esc(r.part)}</td><td class="pad"></td><td class="r num pad">${money(r.price)}</td><td class="pad">${esc(r.phase)}</td><td class="r num pad">${money(r.ext)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No materials yet</td></tr>'}
     </tbody><tfoot><tr><td colspan="7" class="r">Total material (before tax)</td><td class="r num">${money(bom.reduce((s,r)=>s+r.ext,0))}</td></tr></tfoot></table></div>
     <p class="hint" style="padding:0 16px 8px">The CSV has exactly KOJO's columns: Description, Est. Qty., UOM, MPN, UPC, Unit Price, Phase Code. MPN is the item's part number.</p></div>`;
-  $('#rpMh').onclick=exportManhours; $('#rpEq').onclick=exportEquipment; $('#rpBom').onclick=()=>exportBom('csv'); $('#rpBomX').onclick=()=>exportBom('xlsx');
+  $('#rpMh').onclick=exportManhours; $('#rpEq').onclick=exportEquipment; $('#rpMhP').onclick=pdfManhours; $('#rpEqP').onclick=pdfEquipment; $('#rpBom').onclick=()=>exportBom('csv'); $('#rpBomX').onclick=()=>exportBom('xlsx');
   const saveKj=async patch=>{ await saveJob({proposal:{...(S.job.proposal||{}), kojo:{...kojoCfg(), ...patch}}}); renderReports(); };
   $('#kjMode').onchange=e=>saveKj({mode:e.target.value});
   const kt=$('#kjText'); if(kt) kt.onchange=e=>saveKj({text:e.target.value.trim()||'Material Costs'});
@@ -1403,6 +1403,58 @@ function exportBom(kind){
   const ws=XLSX.utils.aoa_to_sheet(a); ws['!cols']=[{wch:46},{wch:11},{wch:7},{wch:16},{wch:14},{wch:11},{wch:16}];
   XLSX.utils.book_append_sheet(wb,ws,'BOM');
   if(kind==='csv') XLSX.writeFile(wb,`bom-${fileTag()}.csv`,{bookType:'csv'}); else XLSX.writeFile(wb,`BOM - ${fileTag()}.xlsx`);
+}
+// ---- Report PDFs
+function reportDoc(title, landscape){
+  if(!window.jspdf){ toast('PDF library did not load — check your connection',true); return null; }
+  const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'pt',format:'letter',orientation:landscape?'landscape':'portrait'});
+  const C=S.company, J=S.job, W=doc.internal.pageSize.getWidth(), M=40; let y=40;
+  let lw=0; if(C.logo){ try{ const p=doc.getImageProperties(C.logo); const hh=34, w=Math.min(140,p.width*hh/p.height); doc.addImage(C.logo,M,y-4,w,w*p.height/p.width); lw=w; }catch(e){} }
+  doc.setFont('helvetica','bold'); doc.setFontSize(lw?10:14); doc.setTextColor(0,0,0); doc.text(C.name||'', lw?W-M:M, y+12, lw?{align:'right'}:undefined);
+  y+=40; doc.setDrawColor(255,91,0); doc.setLineWidth(2); doc.line(M,y,W-M,y); y+=24;
+  doc.setFontSize(16); doc.text(title, M, y);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(100,100,100);
+  doc.text(new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}), W-M, y, {align:'right'}); y+=16;
+  doc.setFontSize(10); doc.setTextColor(27,27,27);
+  doc.text([J.name, [J.job_number?('Job # '+J.job_number):'', J.revision, J.owner].filter(Boolean).join('  ·  ')].filter(Boolean), M, y); y+=28;
+  return {doc, y, M, W};
+}
+function reportFooter(doc){ const n=doc.getNumberOfPages(), H=doc.internal.pageSize.getHeight(), W=doc.internal.pageSize.getWidth();
+  for(let i=1;i<=n;i++){ doc.setPage(i); doc.setFontSize(8); doc.setTextColor(100,100,100); doc.text(`${S.company.name||''}  ·  ${S.job.name}`, 40, H-24); doc.text(`Page ${i} of ${n}`, W-40, H-24, {align:'right'}); } }
+const TBL={ theme:'striped', styles:{fontSize:8.5,cellPadding:4,textColor:[27,27,27],lineColor:[225,230,238]}, headStyles:{fillColor:[0,0,0],textColor:255,fontStyle:'bold'},
+  footStyles:{fillColor:[255,236,224],textColor:[0,0,0],fontStyle:'bold'}, alternateRowStyles:{fillColor:[248,250,252]} };
+const RT={halign:'right'};
+function pdfManhours(){
+  const mh=manhourData(); const many=mh.order.length>7; const r=reportDoc('Man-hours Report', true); if(!r) return; const {doc,M}=r; let y=r.y;
+  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('By Phase Code', M, y); y+=6;
+  doc.autoTable({...TBL, startY:y, margin:{left:M,right:M}, tableWidth:420,
+    head:[['Code','Phase',{content:'Man-hours',styles:RT},{content:'% of Total',styles:RT}]],
+    body:mh.byCode.map(x=>[x.code==='—'?'':x.code, x.name, {content:num(x.hrs,2),styles:RT}, {content:mh.total?num(x.hrs/mh.total*100,1)+'%':'',styles:RT}]),
+    foot:[[{content:'Total man-hours',colSpan:2,styles:RT},{content:num(mh.total,2),styles:RT},{content:'100%',styles:RT}]] });
+  y=doc.lastAutoTable.finalY+24; if(y>doc.internal.pageSize.getHeight()-120){ doc.addPage(); y=50; }
+  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('By Bid Item', M, y); y+=6;
+  const codes=mh.order;
+  doc.autoTable({...TBL, startY:y, margin:{left:M,right:M}, styles:{...TBL.styles, fontSize:many?7:8},
+    head:[['Bid Item','Description',...codes.map(k=>({content:k==='—'?'No code':k,styles:RT})),{content:'Total',styles:RT}]],
+    body:mh.rows.filter(x=>x.tot).map(x=>[x.b.item_no||'', x.b.description, ...codes.map(k=>({content:x.m[k]?num(x.m[k],2):'',styles:RT})), {content:num(x.tot,2),styles:{halign:'right',fontStyle:'bold'}}]),
+    foot:[[{content:'TOTAL',colSpan:2,styles:RT}, ...codes.map(k=>({content:num(mh.byCode.find(z=>z.code===k).hrs,2),styles:RT})), {content:num(mh.total,2),styles:RT}]],
+    columnStyles:{0:{cellWidth:52},1:{cellWidth:many?150:200}} });
+  reportFooter(doc); doc.save(`Manhours - ${fileTag()}.pdf`);
+}
+function pdfEquipment(){
+  const eq=equipData(); const r=reportDoc('Equipment Report', false); if(!r) return; const {doc,M}=r; let y=r.y;
+  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('By Equipment', M, y); y+=6;
+  doc.autoTable({...TBL, startY:y, margin:{left:M,right:M},
+    head:[['Equipment',{content:'Total Hours',styles:RT},{content:'Days (8 hr)',styles:RT},{content:'Cost (before markup)',styles:RT}]],
+    body:eq.list.map(x=>[x.name, {content:num(x.hrs,2),styles:RT}, {content:num(x.hrs/8,2),styles:RT}, {content:money(x.cost),styles:RT}]),
+    foot:[[{content:'TOTAL',styles:RT},{content:num(eq.hrs,2),styles:RT},{content:num(eq.hrs/8,2),styles:RT},{content:money(eq.cost),styles:RT}]] });
+  y=doc.lastAutoTable.finalY+24; if(y>doc.internal.pageSize.getHeight()-120){ doc.addPage(); y=50; }
+  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('By Bid Item', M, y); y+=6;
+  doc.autoTable({...TBL, startY:y, margin:{left:M,right:M},
+    head:[['Bid Item','Description','Operation','Equipment',{content:'Hours',styles:RT},{content:'Rate',styles:RT},{content:'Cost',styles:RT}]],
+    body:eq.detail.map(x=>[x.b.item_no||'', x.b.description, x.op, x.name+(x.qty>1?` (×${num(x.qty,2)})`:''), {content:num(x.hrs,2),styles:RT}, {content:money(x.rate),styles:RT}, {content:money(x.cost),styles:RT}]),
+    columnStyles:{0:{cellWidth:46},1:{cellWidth:150}} });
+  reportFooter(doc); doc.save(`Equipment - ${fileTag()}.pdf`);
 }
 function fmtNum(ws, cols, z, fromRow){ const r=XLSX.utils.decode_range(ws['!ref']); for(let R=fromRow;R<=r.e.r;R++) cols.forEach(C=>{ const c=ws[C+(R+1)]; if(c&&c.t==='n') c.z=z; }); }
 
