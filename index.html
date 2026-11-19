@@ -871,13 +871,17 @@ function renderBd(){
     if(k==='qty'||k==='unit') renderBd(); else { refreshBiList(); } if(k==='qty') refreshBiList(); refreshTotals(); };
   const tb=$('#blTable tbody');
   tb.onchange=async e=>{ const el=e.target.closest('.cell'); if(!el) return; const lid=el.closest('tr').dataset.lid, f=el.dataset.f; let v=el.value.trim();
+    if(f==='tq'){ const t=parseNum(v); if(t==null) return flash(el,false); const l=S.bls.find(x=>x.id===lid), b=S.bis.find(x=>x.id===l.bid_item_id); const bq=Number(b.qty)||0;
+      const patch = l.qty_mode==='per' ? (bq ? {qty:t/bq} : {qty_mode:'total', qty:t}) : {qty:t};
+      const ok=await saveBL(lid,patch); flash(el,ok); const q=el.closest('tr').querySelector('[data-f=qty]'); if(q) q.value=num(l.qty,6);
+      refreshBlRow(lid); renderBdEquip(); renderBdSum(); refreshBiList(); refreshTotals(); return; }
     if(['qty','unit_price','labor_hours'].includes(f)){ v=parseNum(v); if(v==null) return flash(el,false); } else if(!v && f!=='description') v=null;
     const ok=await saveBL(lid,{[f]:v}); flash(el,ok);
     if(f==='operation_id' && v && !jobOp(v)) await ensureJobOps([v]);
     refreshBlRow(lid); renderBdEquip(); renderBdSum(); refreshBiList(); refreshTotals(); };
   tb.onclick=async e=>{ const btn=e.target.closest('[data-act]'); if(!btn) return; const lid=btn.closest('tr').dataset.lid, l=S.bls.find(x=>x.id===lid);
     if(btn.dataset.act==='mode'){ const q=Number(b.qty)||1; const nm=l.qty_mode==='per'?'total':'per'; const nq = nm==='total' ? Number(l.qty)*q : Number(l.qty)/q;
-      await saveBL(lid,{qty_mode:nm, qty:Math.round(nq*1e6)/1e6}); renderBd(); refreshBiList(); refreshTotals(); }
+      await saveBL(lid,{qty_mode:nm, qty:nq}); renderBd(); refreshBiList(); refreshTotals(); }
     if(btn.dataset.act==='rm'){ if(await dbErr(await sb.from('bid_lines').delete().eq('id',lid),'Delete')) return; S.bls=S.bls.filter(x=>x.id!==lid); renderBd(); refreshBiList(); refreshTotals(); }
   };
   $('#bdAsm').onclick=()=>pickAssembly(b); $('#bdCat').onclick=()=>pickCatalog(b);
@@ -892,7 +896,7 @@ function blRowHtml(l,b){
     <td><select class="cell" data-f="operation_id" title="${l.operation_id?'':'No operation: labor only, no equipment'}">${opOptions(l.operation_id,'— (labor only)')}</select></td>
     <td><input class="cell num" data-f="qty" value="${num(l.qty,6)}"></td>
     <td><button class="mode ${l.qty_mode==='per'?'per':''}" data-act="mode" title="Switch between per-unit and total">${l.qty_mode==='per'?'per '+esc(b.unit):'total'}</button></td>
-    <td class="r num pad" data-c="tq">${num(tq,2)}</td>
+    <td><input class="cell num" data-f="tq" value="${num(tq,4)}" title="Type a total and the per-unit qty is worked out for you"></td>
     <td><input class="cell" data-f="unit" list="unitList" value="${esc(l.unit)}"></td>
     <td><input class="cell num" data-f="unit_price" value="${num(l.unit_price,4)}"></td>
     <td class="r num pad" data-c="mat">${money(tq*Number(l.unit_price||0))}</td>
@@ -906,7 +910,7 @@ function blFootHtml(b){ const c=calcItem(b);
   return `<tr><td colspan="8" class="r">Totals</td><td class="r num">${money(c.mat)}</td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs,2)}</td><td colspan="2" class="hint" style="font-weight:400">man-hours</td></tr>
     ${extra.length?`<tr><td colspan="8" class="r hint" style="font-weight:400">+ ${extra.join(' + ')} hrs =</td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs+(c.sup?c.sup.hrs:0),2)}</td><td colspan="2" class="hint" style="font-weight:400">total man-hours</td></tr>`:''}`; }
 function refreshBlRow(lid){ const tr=document.querySelector(`#blTable tr[data-lid="${lid}"]`); if(!tr) return; const l=S.bls.find(x=>x.id===lid), b=S.bis.find(x=>x.id===l.bid_item_id), tq=lineTQ(l,b.qty);
-  tr.querySelector('[data-c=tq]').textContent=num(tq,2); tr.querySelector('[data-c=mat]').textContent=money(tq*Number(l.unit_price||0)); tr.querySelector('[data-c=hrs]').textContent=num(tq*Number(l.labor_hours||0),2); }
+  { const t=tr.querySelector('[data-f=tq]'); if(t && document.activeElement!==t) t.value=num(tq,4); } tr.querySelector('[data-c=mat]').textContent=money(tq*Number(l.unit_price||0)); tr.querySelector('[data-c=hrs]').textContent=num(tq*Number(l.labor_hours||0),2); }
 function renderBdEquip(){
   const b=S.bis.find(x=>x.id===S.biSel); const c=calcItem(b); const box=$('#bdEquip'); if(!box) return;
   const eqOpts=`<option value="">+ Add equipment…</option>`+S.equipment.filter(e=>e.active).map(e=>`<option value="${e.id}">${esc(e.name)} (${money(e.rate_per_hour)}/hr)</option>`).join('');
