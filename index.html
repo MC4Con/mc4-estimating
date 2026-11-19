@@ -488,7 +488,7 @@ $('#nav').addEventListener('click', e=>{
   document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on', v.id==='v-'+b.dataset.v));
   if(b.dataset.v==='reports' && !S.historyRan) runHistory();
-  if(b.dataset.v==='jobs'){ if(S.job) renderJob(); else renderJobs(); }
+  if(b.dataset.v==='jobs'){ if(S.job) refreshJobFromCatalog(true).then(renderJob); else renderJobs(); }
 });
 
 /* =====================================================================
@@ -564,19 +564,35 @@ async function openJob(id, tab, askImport){
   S.job=j.data; S.job.ops=S.job.ops||[]; S.job.proposal=S.job.proposal||{}; S.bis=bi.data; S.bls=bl.data; S.jobTab=tab||'sheet'; S.biSel=S.bis[0]?.id||null;
   $('#jobsList').style.display='none'; $('#jobWs').style.display='block';
   await ensureSuperOp();
+  await refreshJobFromCatalog(true);
   renderJob();
   if(askImport) openBidImport();
 }
 function closeJob(){ S.job=null; $('#jobWs').style.display='none'; $('#jobsList').style.display='block'; renderJobs(); }
 const linesOf = biId => S.bls.filter(l=>l.bid_item_id===biId).sort((a,b)=>(a.sort||0)-(b.sort||0));
 const jobOp = id => (S.job.ops||[]).find(o=>o.id===id);
+const opsFor = bi => (bi && bi.status==='ready' && Array.isArray(bi.ops_frozen)) ? bi.ops_frozen : (S.job.ops||[]);
+const opFor = (bi,id) => opsFor(bi).find(o=>o.id===id);
 const lineTQ = (l,biq) => l.qty_mode==='per' ? Number(l.qty)*Number(biq||0) : Number(l.qty);
 const isSuper = o => o && /superintend/i.test(o.name||'');
 const superOp = () => (S.job.ops||[]).find(isSuper);
+// Keep unlocked bids in step with the catalog's operations, crews and equipment (ops edited on the bid stay as edited).
+const opSig = o => JSON.stringify([o.name, Number(o.crew), Number(o.hpd), (o.equip||[]).map(e=>[e.equipment_id, e.name, Number(e.qty), Number(e.rate)])]);
+async function refreshJobFromCatalog(quiet){
+  if(!S.job || S.job.locked) return false;
+  let nOps=0; const ops=(S.job.ops||[]).map(o=>{ if(o.custom) return o; const co=S.ops.find(x=>x.id===o.id); if(!co || !co.active) return o; const sn=snapshotOp(co); if(opSig(sn)!==opSig(o)){ nOps++; return sn; } return o; });
+  if(nOps){ S.job.ops=ops; await sb.from('jobs').update({ops}).eq('id',S.job.id); }
+  const upd=[]; S.bls.forEach(l=>{ if(!l.item_id) return; const i=itemById(l.item_id); if(!i) return; const b=S.bis.find(x=>x.id===l.bid_item_id); if(!b || itemLocked(b)) return;
+    const was=(l.cat_op===undefined ? l.operation_id : l.cat_op)||null, now=i.operation_id||null;
+    if(was!==now && (l.operation_id||null)===was) upd.push([l,now]); });
+  await Promise.all(upd.map(([l,now])=>{ l.operation_id=now; l.cat_op=now; return sb.from('bid_lines').update({operation_id:now, cat_op:now}).eq('id',l.id); }));
+  if(nOps||upd.length){ await ensureJobOps(upd.map(x=>x[1])); if(!quiet) refreshTotals(); toast(`Updated from catalog: ${nOps?nOps+' crew/equipment setup'+(nOps>1?'s':''):''}${nOps&&upd.length?' · ':''}${upd.length?upd.length+' line operation'+(upd.length>1?'s':''):''}`); }
+  return !!(nOps||upd.length);
+}
 async function ensureSuperOp(){ if(S.job.locked || !S.bis.some(b=>b.is_mob) || superOp()) return; const co=S.ops.find(o=>o.active && isSuper(o)); if(co) await ensureJobOps([co.id]); }
 function mobCalc(bi){
   const J=S.job; const base=S.bis.filter(x=>!x.is_mob).reduce((s,x)=>s+calcItem(x).hrs,0);
-  const pct=Number(J.mob_pct ?? 0.05), hrs=base*pct, rate=Number(J.super_rate ?? J.labor_rate), so=superOp();
+  const pct=Number(J.mob_pct ?? 0.05), hrs=base*pct, rate=Number(J.super_rate ?? J.labor_rate), so=opsFor(bi).find(isSuper);
   return { base, pct, hrs, each:hrs/2, rate, cost:hrs*rate, opId:so?.id||null, opName:so?.name||null };
 }
 
@@ -593,7 +609,7 @@ function calcItem(bi){
   const noOpHrs=opHrs['']||0; delete opHrs[''];
   const ovr=bi.day_overrides||{}, eqOv=bi.equip||{}; const ops=[]; let eq=0;
   Object.keys(opHrs).forEach(k=>{
-    const o=jobOp(k); const h=opHrs[k];
+    const o=opFor(bi,k); const h=opHrs[k];
     if(!o){ ops.push({id:k, name:k?'(operation not in this job)':'No operation', hrs:h, crew:0, hpd:0, calcDays:0, days:0, override:false, equip:[], cost:0, missing:!!k, none:!k}); return; }
     const calcDays = o.crew&&o.hpd ? h/o.crew/o.hpd : 0;
     const isO = ovr[k]!=null && ovr[k]!=='' ; const days = isO ? Number(ovr[k]) : calcDays;
@@ -634,7 +650,8 @@ async function setItemStatus(id, v, el){
   const b=S.bis.find(x=>x.id===id); const prev=b.status||'';
   if(prev==='ready' && v!=='ready' && !confirm(`Unlock ${b.item_no||''} ${b.description}? It will be editable again and can receive catalog updates.`)){ if(el) el.value=prev; return; }
   if(S.job?.locked) { if(el) el.value=prev; return lockedMsg(); }
-  b.status=v||null; const r=await sb.from('bid_items').update({status:b.status}).eq('id',id); if(await dbErr(r)) return;
+  b.status=v||null; b.ops_frozen = v==='ready' ? JSON.parse(JSON.stringify(S.job.ops||[])) : null;
+  const r=await sb.from('bid_items').update({status:b.status, ops_frozen:b.ops_frozen}).eq('id',id); if(await dbErr(r)) return;
   if(S.jobTab==='sheet') renderBidSheet(); else { renderBd(); refreshBiList(); }
   renderSync(); if(v==='ready') toast('Marked Ready — this item is locked');
 }
@@ -839,7 +856,7 @@ function renderBd(){
       <th class="r" style="width:90px">Qty</th><th style="width:70px"></th><th class="r" style="width:90px">Total Qty</th><th style="width:60px">Unit</th>
       <th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Material</th><th class="r" style="width:80px">Hrs/Unit</th><th class="r" style="width:80px">Labor Hrs</th>
       <th style="width:100px">Vendor</th><th style="width:56px"></th></tr></thead>
-      <tbody>${ls.map(l=>blRowHtml(l,b)).join('') || `<tr><td colspan="13" class="empty">No lines yet. Add from a master assembly, pick catalog items, or add a blank line.</td></tr>`}</tbody></table></div>
+      <tbody>${ls.map(l=>blRowHtml(l,b)).join('') || `<tr><td colspan="13" class="empty">No lines yet. Add from a master assembly, pick catalog items, or add a blank line.</td></tr>`}</tbody><tfoot id="blFoot">${blFootHtml(b)}</tfoot></table></div>
     <div class="panel-h" style="border-top:1px solid var(--line)"><b>Equipment by Operation</b><span class="hint">Days = labor hrs ÷ crew ÷ hrs/day. Type in a Days box to override it for this item.</span></div>
     <div id="bdEquip"></div>
     <div class="panel-h" style="border-top:1px solid var(--line)"><b>Cost by Cost Code</b><span class="hint">Before tax and markup. Equipment is split by each code's share of the operation's hours.</span></div>
@@ -884,6 +901,10 @@ function blRowHtml(l,b){
     <td><input class="cell" data-f="vendor" value="${esc(l.vendor)}"></td>
     <td style="white-space:nowrap">${q?`<a class="qlink" href="${esc(q)}" target="_blank" rel="noopener" title="Open quote">↗</a>`:''}<button class="icon-btn" data-act="rm" title="Remove">✕</button></td></tr>`;
 }
+function blFootHtml(b){ const c=calcItem(b);
+  const extra=[c.mhHrs?`${num(c.mhHrs,2)} mat. handling`:'', c.sup&&c.sup.hrs?`${num(c.sup.hrs,2)} superintendent`:''].filter(Boolean);
+  return `<tr><td colspan="8" class="r">Totals</td><td class="r num">${money(c.mat)}</td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs,2)}</td><td colspan="2" class="hint" style="font-weight:400">man-hours</td></tr>
+    ${extra.length?`<tr><td colspan="8" class="r hint" style="font-weight:400">+ ${extra.join(' + ')} hrs =</td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.hrs,2)}</td><td colspan="2" class="hint" style="font-weight:400">total man-hours</td></tr>`:''}`; }
 function refreshBlRow(lid){ const tr=document.querySelector(`#blTable tr[data-lid="${lid}"]`); if(!tr) return; const l=S.bls.find(x=>x.id===lid), b=S.bis.find(x=>x.id===l.bid_item_id), tq=lineTQ(l,b.qty);
   tr.querySelector('[data-c=tq]').textContent=num(tq,2); tr.querySelector('[data-c=mat]').textContent=money(tq*Number(l.unit_price||0)); tr.querySelector('[data-c=hrs]').textContent=num(tq*Number(l.labor_hours||0),2); }
 function renderBdEquip(){
@@ -941,6 +962,7 @@ function renderBdSum(){
   $('#bdManual').onchange=async e=>{ const v=e.target.value.trim(); const n = v===''?null:parseNum(v); if(v!=='' && n==null) return flash(e.target,false);
     await saveBI(b.id,{manual_unit_price:n}); renderBdSum(); refreshBiList(); refreshTotals(); };
   renderBdMob(b,c); renderBdCodes(b,c);
+  const bf=$('#blFoot'); if(bf) bf.innerHTML=blFootHtml(b);
 }
 function renderBdMob(b,c){
   const box=$('#bdMob'); if(!box) return; if(!b.is_mob){ box.innerHTML=''; return; }
@@ -990,7 +1012,7 @@ async function addLines(b, recs){
   refreshTotals(); return true;
 }
 function lineFromItem(i, qty, mode, source, ccOverride, asm){ return { item_id:i.id, description:i.description, unit:i.unit, cost_code:ccOverride||i.cost_code, operation_id:i.operation_id,
-  qty, qty_mode:mode||'per', unit_price:Number(i.unit_price), labor_hours:Number(i.labor_hours), cat_price:Number(i.unit_price), cat_labor:Number(i.labor_hours), vendor:i.vendor, quote_url:i.quote_url, source, ...(asm||{}) }; }
+  qty, qty_mode:mode||'per', unit_price:Number(i.unit_price), labor_hours:Number(i.labor_hours), cat_price:Number(i.unit_price), cat_labor:Number(i.labor_hours), cat_op:i.operation_id||null, vendor:i.vendor, quote_url:i.quote_url, source, ...(asm||{}) }; }
 
 function pickAssembly(b){
   const draw=()=>{ const q=($('#paQ')?.value||'').trim().toLowerCase();
@@ -1075,7 +1097,7 @@ function renderJobRates(){
 function renderJobOps(){
   const box=$('#jrOps'); const ops=S.job.ops;
   box.innerHTML = ops.map((o,oi)=>`<div class="card" style="margin-bottom:12px" data-oi="${oi}">
-    <div class="panel-h" style="padding:8px 12px"><b style="flex:1">${esc(o.name)}</b>
+    <div class="panel-h" style="padding:8px 12px"><b style="flex:1">${esc(o.name)}${o.custom?' <span class="tag man">edited for this bid</span> <button class="btn sm sec" data-act="resetop" style="padding:2px 8px">Use catalog</button>':' <span class="tag same" title="Follows the catalog automatically">follows catalog</span>'}</b>
       <label class="chk">Crew <input class="sel num" style="width:70px;padding:4px 6px" data-o="crew" value="${num(o.crew,2)}"></label>
       <label class="chk">Hrs/day <input class="sel num" style="width:70px;padding:4px 6px" data-o="hpd" value="${num(o.hpd,2)}"></label>
       <button class="icon-btn" data-act="rmop" title="Remove from this estimate">✕</button></div>
@@ -1084,12 +1106,13 @@ function renderJobOps(){
       <tr><td colspan="4" class="pad"><select class="sel" data-act="addeq" style="padding:4px 8px"><option value="">+ Add equipment…</option>${S.equipment.filter(e=>e.active).map(e=>`<option value="${e.id}">${esc(e.name)} (${money(e.rate_per_hour)}/hr)</option>`).join('')}</select></td></tr>
     </tbody></table></div>`).join('') || '<div class="hint">No operations. Use “+ Add operation…”.</div>';
   const commit=async ()=>{ await saveJob({ops:S.job.ops}); refreshTotals(); };
-  box.onchange=async e=>{ const card=e.target.closest('[data-oi]'); if(!card) return; const o=ops[+card.dataset.oi];
+  box.onchange=async e=>{ const card=e.target.closest('[data-oi]'); if(!card) return; const o=ops[+card.dataset.oi]; const wasC=!!o.custom; o.custom=true; if(!wasC) setTimeout(()=>{ const t=card.querySelector('b'); if(t && !t.querySelector('.tag.man')){ const s=t.querySelector('.tag.same'); if(s) s.outerHTML='<span class="tag man">edited for this bid</span>'; } },0);
     if(e.target.dataset.o){ const v=parseNum(e.target.value); if(!v) return flash(e.target,false); o[e.target.dataset.o]=v; await commit(); flash(e.target,true); }
     else if(e.target.dataset.e){ const eq=o.equip[+e.target.closest('tr').dataset.ei]; const v=parseNum(e.target.value); if(v==null) return flash(e.target,false); eq[e.target.dataset.e]=v; await commit(); flash(e.target,true); if(e.target.dataset.e==='rate') e.target.value=money(v); }
     else if(e.target.dataset.act==='addeq' && e.target.value){ const eq=S.equipment.find(x=>x.id===e.target.value); o.equip.push({equipment_id:eq.id,name:eq.name,qty:1,rate:Number(eq.rate_per_hour)}); await commit(); renderJobOps(); } };
   box.onclick=async e=>{ const b=e.target.closest('button[data-act]'); if(!b) return; const card=b.closest('[data-oi]'), oi=+card.dataset.oi;
-    if(b.dataset.act==='rmeq'){ ops[oi].equip.splice(+b.closest('tr').dataset.ei,1); }
+    if(b.dataset.act==='rmeq'){ ops[oi].equip.splice(+b.closest('tr').dataset.ei,1); ops[oi].custom=true; }
+    if(b.dataset.act==='resetop'){ const co=S.ops.find(x=>x.id===ops[oi].id); if(co) ops[oi]=snapshotOp(co); else delete ops[oi].custom; }
     if(b.dataset.act==='rmop'){ if(!confirm(`Remove ${ops[oi].name} from this estimate? Lines using it will have no equipment.`)) return; ops.splice(oi,1); }
     await commit(); renderJobRates(); };
 }
@@ -1098,8 +1121,8 @@ function renderJobOps(){
 function propDefaults(){ const C=S.company, J=S.job;
   return { to:J.owner||'', attn:'', address:'', city:'', state:'', zip:'', project:J.name, location:J.location||'', number:[J.job_number,J.revision].filter(Boolean).join(' '), date:new Date().toISOString().slice(0,10),
     addenda:'', intro:C.intro||'', inclusions:C.inclusions||'', exclusions:C.exclusions||'', terms:C.terms||'', validity:C.validity_days||30,
-    show_unit:true, signer_name:C.signer_name||'', signer_title:C.signer_title||'' }; }
-function getProp(){ return {...propDefaults(), ...(S.job.proposal||{})}; }
+    show_unit:true, price_mode:'', signer_name:C.signer_name||'', signer_title:C.signer_title||'' }; }
+function getProp(){ const P={...propDefaults(), ...(S.job.proposal||{})}; if(!P.price_mode) P.price_mode = P.show_unit===false ? 'amount' : 'unit'; return P; }
 function renderProposal(){
   const P=getProp();
   const f=(k,l,type,cls)=>`<div class="fld ${cls||''}"><label>${l}</label>${type==='ta'?`<textarea data-p="${k}" rows="5">${esc(P[k])}</textarea>`:`<input data-p="${k}" type="${type||'text'}" value="${esc(P[k])}">`}</div>`;
@@ -1110,14 +1133,14 @@ function renderProposal(){
       ${f('intro','Opening Line','ta','full')}${f('inclusions','Inclusions (one per line)','ta')}${f('exclusions','Exclusions (one per line)','ta')}
       ${f('terms','Terms & Notes (one per line)','ta','full')}${f('validity','Valid for (days)','number')}<div></div>${f('signer_name','Submitted by')}${f('signer_title','Title')}
     </div></div></div>
-    <div class="card"><div class="panel-h"><h3>Bid Items on the Proposal</h3><span class="spacer"></span><label class="chk"><input type="checkbox" id="prShowUnit" ${P.show_unit?'checked':''}> Show qty &amp; unit prices</label></div>
+    <div class="card"><div class="panel-h"><h3>Bid Items on the Proposal</h3><span class="spacer"></span><label class="chk">Show as <select class="sel" id="prMode" style="padding:5px 8px"><option value="unit" ${P.price_mode==='unit'?'selected':''}>Unit prices (qty, unit price, amount)</option><option value="amount" ${P.price_mode==='amount'?'selected':''}>Amounts only</option><option value="lump" ${P.price_mode==='lump'?'selected':''}>Lump sum (qty &amp; units, one price)</option></select></label></div>
       <div style="max-height:52vh;overflow:auto"><table class="grid"><thead><tr><th style="width:40px"></th><th style="width:90px">Item</th><th>Description</th><th class="r" style="width:130px">Amount</th></tr></thead><tbody id="prItems">
       ${S.bis.map(b=>`<tr data-id="${b.id}"><td class="c"><input type="checkbox" ${b.in_proposal!==false?'checked':''}></td><td class="pad mono">${esc(b.item_no)}</td><td class="pad">${esc(b.description)}</td><td class="r pad num">${money(calcItem(b).amount)}</td></tr>`).join('')}</tbody></table></div>
       <div class="panel-h" style="border-top:1px solid var(--line);border-bottom:0"><span class="hint" id="prTot"></span><span id="prWarn"></span><span class="spacer"></span><button class="btn sec" id="prPrev">Preview</button><button class="btn dark" id="prDl">Download PDF</button></div></div></div>`;
   const updTot=()=>{ const t=S.bis.filter(b=>b.in_proposal!==false).reduce((s,b)=>s+calcItem(b).amount,0); $('#prTot').innerHTML=`Proposal total: <b class="num">${money(t)}</b>`; const z=S.bis.filter(b=>b.in_proposal!==false && !calcItem(b).amount).length; $('#prWarn').innerHTML=z?`<span class="tag warn">${z} item${z>1?'s':''} at $0 — not priced yet</span>`:''; }; updTot();
   $('#jBody').querySelector('.form').onchange=async e=>{ const k=e.target.dataset.p; if(!k) return; const p={...(S.job.proposal||{}), [k]: k==='validity'?parseNum(e.target.value):e.target.value};
     const ok=await saveJob({proposal:p}); flash(e.target,ok); };
-  $('#prShowUnit').onchange=e=>saveJob({proposal:{...(S.job.proposal||{}), show_unit:e.target.checked}});
+  $('#prMode').onchange=e=>saveJob({proposal:{...(S.job.proposal||{}), price_mode:e.target.value, show_unit:e.target.value==='unit'}});
   $('#prItems').onchange=async e=>{ const id=e.target.closest('tr').dataset.id; await saveBI(id,{in_proposal:e.target.checked}); updTot(); };
   $('#prReset').onclick=async ()=>{ const C=S.company; const p={...(S.job.proposal||{}), intro:C.intro||'', inclusions:C.inclusions||'', exclusions:C.exclusions||'', terms:C.terms||'', validity:C.validity_days||30, signer_name:C.signer_name||'', signer_title:C.signer_title||''};
     await saveJob({proposal:p}); renderProposal(); };
@@ -1156,15 +1179,28 @@ function buildProposal(){
   y=doc.lastAutoTable.finalY+14;
   if(P.intro){ doc.setFontSize(10); doc.setTextColor(27,37,51); const t=doc.splitTextToSize(P.intro, W-2*M); doc.text(t, M, y); y+=t.length*13+6; }
   // items
-  const items=S.bis.filter(b=>b.in_proposal!==false); const showU=P.show_unit!==false;
+  const items=S.bis.filter(b=>b.in_proposal!==false); const mode=P.price_mode;
   const total=items.reduce((s,b)=>s+calcItem(b).amount,0);
-  const head=showU?[['Item','Description','Qty','Unit','Unit Price','Amount']]:[['Item','Description','Amount']];
-  const body=items.map(b=>{ const c=calcItem(b); return showU?[b.item_no||'',b.description,num(b.qty,2),b.unit||'',money(c.unit),money(c.amount)]:[b.item_no||'',b.description,money(c.amount)]; });
-  doc.autoTable({ startY:y, head, body, foot:[showU?[{content:'TOTAL',colSpan:5,styles:{halign:'right'}},money(total)]:[{content:'TOTAL',colSpan:2,styles:{halign:'right'}},money(total)]],
+  const RA={halign:'right'};
+  const cfg = mode==='lump' ? {
+      head:[['Item','Description',{content:'Qty',styles:RA},'Unit']],
+      body:items.map(b=>[b.item_no||'',b.description,num(b.qty,2),b.unit||'']),
+      foot:[[{content:'LUMP SUM PRICE',colSpan:2,styles:RA},{content:money(total),colSpan:2,styles:RA}]],
+      cols:{0:{cellWidth:56},2:{halign:'right',cellWidth:70},3:{cellWidth:60}} }
+    : mode==='amount' ? {
+      head:[['Item','Description',{content:'Amount',styles:RA}]],
+      body:items.map(b=>[b.item_no||'',b.description,money(calcItem(b).amount)]),
+      foot:[[{content:'TOTAL',colSpan:2,styles:RA},money(total)]],
+      cols:{0:{cellWidth:60},2:{halign:'right',cellWidth:100}} }
+    : {
+      head:[['Item','Description',{content:'Qty',styles:RA},'Unit',{content:'Unit Price',styles:RA},{content:'Amount',styles:RA}]],
+      body:items.map(b=>{ const c=calcItem(b); return [b.item_no||'',b.description,num(b.qty,2),b.unit||'',money(c.unit),money(c.amount)]; }),
+      foot:[[{content:'TOTAL',colSpan:5,styles:RA},money(total)]],
+      cols:{0:{cellWidth:56},2:{halign:'right',cellWidth:56},3:{cellWidth:38},4:{halign:'right',cellWidth:72},5:{halign:'right',cellWidth:84}} };
+  doc.autoTable({ startY:y, head:cfg.head, body:cfg.body, foot:cfg.foot,
     margin:{left:M,right:M,bottom:60}, theme:'striped', styles:{fontSize:9,cellPadding:5,textColor:[27,37,51],lineColor:[225,230,238]},
     headStyles:{fillColor:NAVY,textColor:255,fontStyle:'bold'}, footStyles:{fillColor:[255,236,224],textColor:NAVY,fontStyle:'bold',fontSize:10.5}, alternateRowStyles:{fillColor:[248,250,252]},
-    columnStyles: showU ? {0:{cellWidth:56},2:{halign:'right',cellWidth:56},3:{cellWidth:38},4:{halign:'right',cellWidth:72},5:{halign:'right',cellWidth:84}} : {0:{cellWidth:60},2:{halign:'right',cellWidth:100}},
-    didParseCell:d=>{ if(d.section==='head' && ((showU&&d.column.index>=4)||(showU&&d.column.index===2)||(!showU&&d.column.index===2))) d.cell.styles.halign='right'; } });
+    columnStyles:cfg.cols });
   y=doc.lastAutoTable.finalY+20;
   const H=doc.internal.pageSize.getHeight();
   const need=h=>{ if(y+h>H-60){ doc.addPage(); y=50; } };
