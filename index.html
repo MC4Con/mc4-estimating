@@ -902,9 +902,9 @@ function blRowHtml(l,b){
     <td style="white-space:nowrap">${q?`<a class="qlink" href="${esc(q)}" target="_blank" rel="noopener" title="Open quote">↗</a>`:''}<button class="icon-btn" data-act="rm" title="Remove">✕</button></td></tr>`;
 }
 function blFootHtml(b){ const c=calcItem(b);
-  const extra=[c.mhHrs?`${num(c.mhHrs,2)} mat. handling`:'', c.sup&&c.sup.hrs?`${num(c.sup.hrs,2)} superintendent`:''].filter(Boolean);
+  const extra=[c.sup&&c.sup.hrs?`${num(c.sup.hrs,2)} superintendent`:''].filter(Boolean);
   return `<tr><td colspan="8" class="r">Totals</td><td class="r num">${money(c.mat)}</td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs,2)}</td><td colspan="2" class="hint" style="font-weight:400">man-hours</td></tr>
-    ${extra.length?`<tr><td colspan="8" class="r hint" style="font-weight:400">+ ${extra.join(' + ')} hrs =</td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.hrs,2)}</td><td colspan="2" class="hint" style="font-weight:400">total man-hours</td></tr>`:''}`; }
+    ${extra.length?`<tr><td colspan="8" class="r hint" style="font-weight:400">+ ${extra.join(' + ')} hrs =</td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs+(c.sup?c.sup.hrs:0),2)}</td><td colspan="2" class="hint" style="font-weight:400">total man-hours</td></tr>`:''}`; }
 function refreshBlRow(lid){ const tr=document.querySelector(`#blTable tr[data-lid="${lid}"]`); if(!tr) return; const l=S.bls.find(x=>x.id===lid), b=S.bis.find(x=>x.id===l.bid_item_id), tq=lineTQ(l,b.qty);
   tr.querySelector('[data-c=tq]').textContent=num(tq,2); tr.querySelector('[data-c=mat]').textContent=money(tq*Number(l.unit_price||0)); tr.querySelector('[data-c=hrs]').textContent=num(tq*Number(l.labor_hours||0),2); }
 function renderBdEquip(){
@@ -949,7 +949,7 @@ function renderBdSum(){
   const r=(l,v,cls)=>`<div class="sum-row ${cls||''}"><span>${l}</span><span class="num">${v}</span></div>`;
   box.innerHTML = `<div class="sum-grid">
     <div class="sum-col"><h4>Material</h4>${r('Material cost',money(c.mat))}${r('Tax '+pctTxt(J.tax_rate),money(c.tax))}${r('OH/P '+pctTxt(J.material_markup),money(c.matOH))}${r('Total material',money(c.matT),'t')}</div>
-    <div class="sum-col"><h4>Labor</h4>${r(num(c.crewHrs,2)+' crew hrs × '+money(J.labor_rate),money(c.crewHrs*J.labor_rate))}${c.mhHrs?r(num(c.mhHrs,2)+' mat. handling hrs ('+num(c.mhPct*100,2)+'%)',money(c.mhHrs*J.labor_rate)):''}${c.sup?r(num(c.sup.hrs,2)+' super hrs × '+money(c.sup.rate),money(c.sup.cost)):''}${r('OH/P '+pctTxt(J.labor_markup),money(c.labOH))}${r('Total labor',money(c.labT),'t')}${r('Labor % of total',c.total?num(c.labT/c.total*100,1)+'%':'—')}</div>
+    <div class="sum-col"><h4>Labor</h4>${r(num(c.crewHrs,4)+' crew hrs × '+money(J.labor_rate),money(c.crewHrs*J.labor_rate))}${c.mhHrs?r(num(c.mhHrs,4)+' mat. handling hrs ('+num(c.mhPct*100,2)+'%)',money(c.mhHrs*J.labor_rate)):''}${c.sup?r(num(c.sup.hrs,4)+' super hrs × '+money(c.sup.rate),money(c.sup.cost)):''}${r('OH/P '+pctTxt(J.labor_markup),money(c.labOH))}${r('Total labor',money(c.labT),'t')}${r('Labor % of total',c.total?num(c.labT/c.total*100,1)+'%':'—')}</div>
     <div class="sum-col"><h4>Equipment</h4>${r('Equipment',money(c.eq))}${r('OH/P '+pctTxt(J.equipment_markup),money(c.eqOH))}${r('Total equipment',money(c.eqT),'t')}${r('<b>Item total</b>','<b>'+money(c.total)+'</b>')}</div>
   </div>
   <div class="unit-box">
@@ -968,7 +968,7 @@ function renderBdMob(b,c){
   const box=$('#bdMob'); if(!box) return; if(!b.is_mob){ box.innerHTML=''; return; }
   const s=c.sup, J=S.job; const so=c.ops.find(o=>o.id===s.opId);
   const eqEach = so && so.hrs ? so.cost*(s.hrs/so.hrs)/2 : 0;
-  const row=(code,name)=>`<tr><td class="pad mono">${code}</td><td class="pad">${name}</td><td class="r num pad">${num(s.each,2)}</td><td class="r num pad">${money(s.rate)}</td><td class="r num pad">${money(s.each*s.rate)}</td><td class="r num pad">${money(eqEach)}</td><td class="r num pad"><b>${money(s.each*s.rate+eqEach)}</b></td></tr>`;
+  const row=(code,name)=>`<tr><td class="pad mono">${code}</td><td class="pad">${name}</td><td class="r num pad">${num(s.each,4)}</td><td class="r num pad">${money(s.rate)}</td><td class="r num pad">${money(s.each*s.rate)}</td><td class="r num pad">${money(eqEach)}</td><td class="r num pad"><b>${money(s.each*s.rate+eqEach)}</b></td></tr>`;
   box.innerHTML = `<div class="panel-h" style="background:#fff1e8"><b>Superintendent (1010 / 1030)</b>
       <span class="hint">${num(s.pct*100,3)}% of <b>${num(s.base,1)}</b> project labor hrs = <b>${num(s.hrs,1)} hrs</b>, split equally</span><span class="spacer"></span>
       <label class="chk">Super % <input class="sel num" id="mobPct" style="width:80px;padding:4px 6px" value="${num(s.pct*100,3)}%"></label>
