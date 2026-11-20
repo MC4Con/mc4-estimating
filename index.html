@@ -1193,7 +1193,9 @@ function buildProposal(){
   doc.setTextColor(...NAVY); doc.setFont('helvetica','bold'); doc.setFontSize(20); doc.text('PROPOSAL', M, y);
   doc.setFontSize(9.5); doc.setFont('helvetica','normal'); doc.setTextColor(...MUT);
   const pd=P.date?new Date(P.date+'T12:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}):'';
-  doc.text([P.number?('Proposal # '+P.number):'', pd].filter(Boolean).join('    '), W-M, y, {align:'right'}); y+=16;
+  if(P.number){ doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(...NAVY); doc.text('Proposal # '+P.number, W-M, y-7, {align:'right'});
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(...MUT); if(pd) doc.text(pd, W-M, y+6, {align:'right'}); y+=22; }
+  else { if(pd) doc.text(pd, W-M, y, {align:'right'}); y+=16; }
   // info block
   const csz=[P.city, [P.state,P.zip].filter(s=>s&&String(s).trim()).join(' ')].filter(s=>s&&String(s).trim()).join(', ');
   const L=[['To',P.to],['Attention',P.attn],['Address',P.address],[P.address?'':'Address',csz]].filter(r=>r[1]);
@@ -1246,7 +1248,7 @@ function buildProposal(){
   doc.setTextColor(...MUT); doc.text(C.name||'', M, y); if(sig && pd) doc.text('Date: '+pd, M+150, y); y+=28;
   doc.setDrawColor(150); doc.line(cx,y-16,cx+150,y-16); doc.line(cx+165,y-16,W-M,y-16); doc.text('Printed Name / Title', cx, y-4); doc.text('Date', cx+165, y-4);
   // footer
-  const n=doc.getNumberOfPages(); for(let i=1;i<=n;i++){ doc.setPage(i); doc.setFontSize(8); doc.setTextColor(...MUT); doc.text(`${C.name||''}  ·  ${P.project||''}`, M, H-28); doc.text(`Page ${i} of ${n}`, W-M, H-28, {align:'right'}); }
+  const n=doc.getNumberOfPages(); for(let i=1;i<=n;i++){ doc.setPage(i); doc.setFontSize(8); doc.setTextColor(...MUT); doc.text([C.name, P.project, P.number?('Proposal # '+P.number):''].filter(x=>x&&String(x).trim()).join('  ·  '), M, H-28); doc.text(`Page ${i} of ${n}`, W-M, H-28, {align:'right'}); }
   return doc;
 }
 
