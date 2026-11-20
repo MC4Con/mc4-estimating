@@ -1436,7 +1436,6 @@ function pdfManhours(field){
   const raw=manhourData(), f = field ? 1-fieldPct() : 1;
   const mh={ order:raw.order, rows:raw.rows.map(r=>{ const m={}; Object.keys(r.m).forEach(k=>m[k]=r.m[k]*f); return {b:r.b, m, tot:r.tot*f}; }), byCode:raw.byCode.map(x=>({...x, hrs:x.hrs*f})), total:raw.total*f };
   const many=mh.order.length>7; const r=reportDoc(field?'Field Report':'Man-hours Report', true); if(!r) return; const {doc,M}=r; let y=r.y;
-  if(field){ doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.setTextColor(100,100,100); doc.text(`Man-hour budget for the field: ${num(fieldPct()*100,2)}% less than the estimate.`, M, y-10); doc.setTextColor(27,27,27); y+=6; }
   doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('By Phase Code', M, y); y+=6;
   doc.autoTable({...TBL, startY:y, margin:{left:M,right:M}, tableWidth:420,
     head:[['Code','Phase',{content:'Man-hours',styles:RT},{content:'% of Total',styles:RT}]],
