@@ -794,7 +794,7 @@ function bsRowHtml(b, i){
     <td class="r num pad" data-c="unit">${money(c.unit)}</td>
     <td class="r num pad" data-c="amt">${money(c.amount)}</td>
     <td class="pad">${statusSel(b)}</td>
-    <td class="pad" data-c="st">${status}</td>
+    <td class="pad" data-c="st">${status}${(()=>{ const n=linesOf(b.id).filter(l=>l.need_quote).length; return n?` <span class="st-pill" style="background:#fff3a3;color:#6b5200" title="Lines marked Need Quote">${n} need quote</span>`:''; })()}</td>
     <td style="white-space:nowrap"><button class="btn sm sec" data-act="open">Breakdown →</button><button class="icon-btn" data-act="up" title="Move up">↑</button><button class="icon-btn" data-act="dn" title="Move down">↓</button><button class="icon-btn" data-act="del" title="Delete">✕</button></td></tr>`;
 }
 function renderBidSheet(){
@@ -854,9 +854,9 @@ function renderBd(){
     <div style="overflow:auto"><table class="grid" id="blTable"><thead><tr>
       <th style="min-width:220px">Description</th><th style="width:120px">Cost Code</th><th style="width:150px">Operation</th>
       <th class="r" style="width:90px">Qty</th><th style="width:70px"></th><th class="r" style="width:90px">Total Qty</th><th style="width:60px">Unit</th>
-      <th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Material</th><th class="r" style="width:80px">Hrs/Unit</th><th class="r" style="width:80px">Labor Hrs</th>
+      <th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Material</th><th class="c" style="width:70px">Need Quote</th><th class="r" style="width:80px">Hrs/Unit</th><th class="r" style="width:80px">Labor Hrs</th>
       <th style="width:100px">Vendor</th><th style="width:56px"></th></tr></thead>
-      <tbody>${ls.map(l=>blRowHtml(l,b)).join('') || `<tr><td colspan="13" class="empty">No lines yet. Add from a master assembly, pick catalog items, or add a blank line.</td></tr>`}</tbody><tfoot id="blFoot">${blFootHtml(b)}</tfoot></table></div>
+      <tbody>${ls.map(l=>blRowHtml(l,b)).join('') || `<tr><td colspan="14" class="empty">No lines yet. Add from a master assembly, pick catalog items, or add a blank line.</td></tr>`}</tbody><tfoot id="blFoot">${blFootHtml(b)}</tfoot></table></div>
     <div class="panel-h" style="border-top:1px solid var(--line)"><b>Equipment by Operation</b><span class="hint">Days = labor hrs ÷ crew ÷ hrs/day. Type in a Days box to override it for this item.</span></div>
     <div id="bdEquip"></div>
     <div class="panel-h" style="border-top:1px solid var(--line)"><b>Cost by Cost Code</b><span class="hint">Before tax and markup. Equipment is split by each code's share of the operation's hours.</span></div>
@@ -870,7 +870,8 @@ function renderBd(){
     const ok=await saveBI(b.id,{[k]:v||(k==='description'?'':null)}); flash(e.target,ok);
     if(k==='qty'||k==='unit') renderBd(); else { refreshBiList(); } if(k==='qty') refreshBiList(); refreshTotals(); };
   const tb=$('#blTable tbody');
-  tb.onchange=async e=>{ const el=e.target.closest('.cell'); if(!el) return; const lid=el.closest('tr').dataset.lid, f=el.dataset.f; let v=el.value.trim();
+  tb.onchange=async e=>{ if(e.target.dataset.nq){ const tr=e.target.closest('tr'); const ok=await saveBL(tr.dataset.lid,{need_quote:e.target.checked}); if(!ok){ e.target.checked=!e.target.checked; return; } const l=S.bls.find(x=>x.id===tr.dataset.lid), ci=l.item_id?itemById(l.item_id):null; tr.classList.toggle('hl', !!(l.need_quote||(ci&&ci.highlight))); refreshBiList(); return; }
+    const el=e.target.closest('.cell'); if(!el) return; const lid=el.closest('tr').dataset.lid, f=el.dataset.f; let v=el.value.trim();
     if(f==='tq'){ const t=parseNum(v); if(t==null) return flash(el,false); const l=S.bls.find(x=>x.id===lid), b=S.bis.find(x=>x.id===l.bid_item_id); const bq=Number(b.qty)||0;
       const patch = l.qty_mode==='per' ? (bq ? {qty:t/bq} : {qty_mode:'total', qty:t}) : {qty:t};
       const ok=await saveBL(lid,patch); flash(el,ok); const q=el.closest('tr').querySelector('[data-f=qty]'); if(q) q.value=num(l.qty,6);
@@ -890,7 +891,7 @@ function renderBd(){
 }
 function blRowHtml(l,b){
   const tq=lineTQ(l,b.qty); const q=safeUrl(l.quote_url); const ci=l.item_id?itemById(l.item_id):null;
-  return `<tr data-lid="${l.id}" class="${ci&&ci.highlight?'hl':''}">
+  return `<tr data-lid="${l.id}" class="${(ci&&ci.highlight)||l.need_quote?'hl':''}">
     <td><input class="cell" data-f="description" value="${esc(l.description)}" title="${esc(l.source?('From: '+l.source):'')}"></td>
     <td><select class="cell" data-f="cost_code">${codeOptions(l.cost_code,'—')}</select></td>
     <td><select class="cell" data-f="operation_id" title="${l.operation_id?'':'No operation: labor only, no equipment'}">${opOptions(l.operation_id,'— (labor only)')}</select></td>
@@ -900,6 +901,7 @@ function blRowHtml(l,b){
     <td><input class="cell" data-f="unit" list="unitList" value="${esc(l.unit)}"></td>
     <td><input class="cell num" data-f="unit_price" value="${num(l.unit_price,4)}"></td>
     <td class="r num pad" data-c="mat">${money(tq*Number(l.unit_price||0))}</td>
+    <td class="c"><input type="checkbox" data-nq="1" ${l.need_quote?'checked':''} title="Need quote — highlights the line yellow"></td>
     <td><input class="cell num" data-f="labor_hours" value="${num(l.labor_hours,4)}"></td>
     <td class="r num pad" data-c="hrs">${num(tq*Number(l.labor_hours||0),2)}</td>
     <td><input class="cell" data-f="vendor" value="${esc(l.vendor)}"></td>
@@ -907,8 +909,8 @@ function blRowHtml(l,b){
 }
 function blFootHtml(b){ const c=calcItem(b);
   const extra=[c.sup&&c.sup.hrs?`${num(c.sup.hrs,2)} superintendent`:''].filter(Boolean);
-  return `<tr><td colspan="8" class="r">Totals</td><td class="r num">${money(c.mat)}</td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs,2)}</td><td colspan="2" class="hint" style="font-weight:400">man-hours</td></tr>
-    ${extra.length?`<tr><td colspan="8" class="r hint" style="font-weight:400">+ ${extra.join(' + ')} hrs =</td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs+(c.sup?c.sup.hrs:0),2)}</td><td colspan="2" class="hint" style="font-weight:400">total man-hours</td></tr>`:''}`; }
+  return `<tr><td colspan="8" class="r">Totals</td><td class="r num">${money(c.mat)}</td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs,2)}</td><td colspan="2" class="hint" style="font-weight:400">man-hours</td></tr>
+    ${extra.length?`<tr><td colspan="8" class="r hint" style="font-weight:400">+ ${extra.join(' + ')} hrs =</td><td></td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs+(c.sup?c.sup.hrs:0),2)}</td><td colspan="2" class="hint" style="font-weight:400">total man-hours</td></tr>`:''}`; }
 function refreshBlRow(lid){ const tr=document.querySelector(`#blTable tr[data-lid="${lid}"]`); if(!tr) return; const l=S.bls.find(x=>x.id===lid), b=S.bis.find(x=>x.id===l.bid_item_id), tq=lineTQ(l,b.qty);
   { const t=tr.querySelector('[data-f=tq]'); if(t && document.activeElement!==t) t.value=num(tq,4); } tr.querySelector('[data-c=mat]').textContent=money(tq*Number(l.unit_price||0)); tr.querySelector('[data-c=hrs]').textContent=num(tq*Number(l.labor_hours||0),2); }
 function renderBdEquip(){
@@ -1123,7 +1125,7 @@ function renderJobOps(){
 
 /* ---------- Proposal tab ---------- */
 function propDefaults(){ const C=S.company, J=S.job;
-  return { to:J.owner||'', attn:'', address:'', city:'', state:'', zip:'', project:J.name, location:J.location||'', number:[J.job_number,J.revision].filter(Boolean).join(' '), date:new Date().toISOString().slice(0,10),
+  return { to:J.owner||'', attn:'', address:'', city:'', state:'', zip:'', project:J.name, location:J.location||'', number:[J.job_number,J.revision].filter(Boolean).join(' '), date:(d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)(new Date()),
     addenda:'', intro:C.intro||'', inclusions:C.inclusions||'', exclusions:C.exclusions||'', terms:C.terms||'', validity:C.validity_days||30,
     show_unit:true, price_mode:'', signer_name:C.signer_name||'', signer_title:C.signer_title||'' }; }
 function getProp(){ const P={...propDefaults(), ...(S.job.proposal||{})}; if(!P.price_mode) P.price_mode = P.show_unit===false ? 'amount' : 'unit'; return P; }
@@ -1135,7 +1137,7 @@ function renderProposal(){
       ${f('to','To (Owner / GC)')}${f('attn','Attention')}${f('address','Address Line','text','full')}<div class="full" style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px">${f('city','City')}${f('state','State')}${f('zip','Zip')}</div>${f('project','Project')}${f('location','Location')}
       ${f('number','Proposal #')}${f('date','Proposal Date','date')}${f('addenda','Addenda Acknowledged','text','full')}
       ${f('intro','Opening Line','ta','full')}${f('inclusions','Inclusions (one per line)','ta')}${f('exclusions','Exclusions (one per line)','ta')}
-      ${f('terms','Terms & Notes (one per line)','ta','full')}${f('validity','Valid for (days)','number')}<div></div>${f('signer_name','Submitted by')}${f('signer_title','Title')}
+      ${f('terms','Terms & Notes (one per line)','ta','full')}${f('validity','Valid for (days)','number')}<div></div>${f('signer_name','Submitted by')}${f('signer_title','Title')}<div class="fld full"><label class="chk" style="color:var(--text)"><input type="checkbox" id="prSign" ${P.auto_sign!==false?'checked':''}> Sign automatically and date it</label><div class="hint" id="prSigNote">${sigFor(P.signer_name)?'✔ Signature on file for '+esc(P.signer_name):'No saved signature for “'+esc(P.signer_name||'')+'” — add one under Company &amp; Proposal → Signatures.'}</div></div>
     </div></div></div>
     <div class="card"><div class="panel-h"><h3>Bid Items on the Proposal</h3><span class="spacer"></span><label class="chk">Show as <select class="sel" id="prMode" style="padding:5px 8px"><option value="unit" ${P.price_mode==='unit'?'selected':''}>Unit prices (qty, unit price, amount)</option><option value="amount" ${P.price_mode==='amount'?'selected':''}>Amounts only</option><option value="lump" ${P.price_mode==='lump'?'selected':''}>Lump sum (qty &amp; units, one price)</option></select></label></div>
       <div style="max-height:52vh;overflow:auto"><table class="grid"><thead><tr><th style="width:40px"></th><th style="width:90px">Item</th><th>Description</th><th class="r" style="width:130px">Amount</th></tr></thead><tbody id="prItems">
@@ -1145,6 +1147,8 @@ function renderProposal(){
   $('#jBody').querySelector('.form').onchange=async e=>{ const k=e.target.dataset.p; if(!k) return; const p={...(S.job.proposal||{}), [k]: k==='validity'?parseNum(e.target.value):e.target.value};
     const ok=await saveJob({proposal:p}); flash(e.target,ok); };
   $('#prMode').onchange=e=>saveJob({proposal:{...(S.job.proposal||{}), price_mode:e.target.value, show_unit:e.target.value==='unit'}});
+  $('#prSign').onchange=e=>saveJob({proposal:{...(S.job.proposal||{}), auto_sign:e.target.checked}});
+  $('[data-p=signer_name]').addEventListener('change',e=>{ const n=e.target.value.trim(); $('#prSigNote').innerHTML = sigFor(n)?'✔ Signature on file for '+esc(n):'No saved signature for “'+esc(n)+'” — add one under Company &amp; Proposal → Signatures.'; });
   $('#prItems').onchange=async e=>{ const id=e.target.closest('tr').dataset.id; await saveBI(id,{in_proposal:e.target.checked}); updTot(); };
   $('#prReset').onclick=async ()=>{ const C=S.company; const p={...(S.job.proposal||{}), intro:C.intro||'', inclusions:C.inclusions||'', exclusions:C.exclusions||'', terms:C.terms||'', validity:C.validity_days||30, signer_name:C.signer_name||'', signer_title:C.signer_title||''};
     await saveJob({proposal:p}); renderProposal(); };
@@ -1217,10 +1221,12 @@ function buildProposal(){
   // signatures
   need(110); doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(...NAVY);
   const cx=W/2+10; doc.text('SUBMITTED BY', M, y); doc.text('ACCEPTED BY', cx, y); y+=34;
+  const sig = P.auto_sign!==false ? sigFor(P.signer_name) : null;
+  if(sig){ try{ const ip=doc.getImageProperties(sig); let hh=30, w=ip.width*hh/ip.height; if(w>210){ w=210; hh=ip.height*w/ip.width; } doc.addImage(sig,'PNG',M+2,y-hh-1,w,hh); }catch(e){} }
   doc.setDrawColor(150); doc.setLineWidth(.6); doc.line(M,y,M+220,y); doc.line(cx,y,W-M,y); y+=12;
   doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(27,37,51);
   doc.text([P.signer_name,P.signer_title].filter(Boolean).join(', ')||'Signature', M, y); doc.text('Signature', cx, y); y+=12;
-  doc.setTextColor(...MUT); doc.text(C.name||'', M, y); y+=28;
+  doc.setTextColor(...MUT); doc.text(C.name||'', M, y); if(sig && pd) doc.text('Date: '+pd, M+150, y); y+=28;
   doc.setDrawColor(150); doc.line(cx,y-16,cx+150,y-16); doc.line(cx+165,y-16,W-M,y-16); doc.text('Printed Name / Title', cx, y-4); doc.text('Date', cx+165, y-4);
   // footer
   const n=doc.getNumberOfPages(); for(let i=1;i<=n;i++){ doc.setPage(i); doc.setFontSize(8); doc.setTextColor(...MUT); doc.text(`${C.name||''}  ·  ${P.project||''}`, M, H-28); doc.text(`Page ${i} of ${n}`, W-M, H-28, {align:'right'}); }
@@ -1337,7 +1343,7 @@ function equipData(){
 function renderReports(){
   const mh=manhourData(), eq=equipData(), kj=kojoCfg(), bom=bomData();
   $('#jBody').innerHTML = `<div class="two">
-    <div class="card"><div class="panel-h"><h3>Man-hours by Phase Code</h3><span class="spacer"></span><button class="btn sm sec" id="rpMhP" data-keep="1">PDF</button><button class="btn sm" id="rpMh" data-keep="1">Excel</button></div>
+    <div class="card"><div class="panel-h"><h3>Man-hours by Phase Code</h3><span class="spacer"></span><label class="chk" title="Field Report shows man-hours this much lower than the estimate"><input class="sel num" id="fieldPct" style="width:58px;padding:4px 6px" value="${num(fieldPct()*100,2)}">% less</label><button class="btn sm dark" id="rpField" data-keep="1">Field Report PDF</button><button class="btn sm sec" id="rpMhP" data-keep="1">PDF</button><button class="btn sm" id="rpMh" data-keep="1">Excel</button></div>
       <table class="grid"><thead><tr><th style="width:90px">Code</th><th>Phase</th><th class="r" style="width:120px">Man-hours</th><th class="r" style="width:80px">%</th></tr></thead><tbody>
       ${mh.byCode.map(r=>`<tr><td class="pad mono">${esc(r.code==='—'?'':r.code)}</td><td class="pad">${esc(r.name)}</td><td class="r num pad">${num(r.hrs,2)}</td><td class="r num pad hint">${mh.total?num(r.hrs/mh.total*100,1)+'%':''}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">No labor yet</td></tr>'}
       </tbody><tfoot><tr><td colspan="2" class="r">Total man-hours</td><td class="r num">${num(mh.total,2)}</td><td></td></tr></tfoot></table>
@@ -1356,7 +1362,8 @@ function renderReports(){
     ${bom.map(r=>`<tr class="${r.hl?'hl':''}"><td class="pad">${esc(r.desc)}</td><td class="r num pad">${num(r.qty,4)}</td><td class="pad">${esc(r.uom)}</td><td class="pad mono">${esc(r.part)}</td><td class="pad"></td><td class="r num pad">${money(r.price)}</td><td class="pad">${esc(r.phase)}</td><td class="r num pad">${money(r.ext)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No materials yet</td></tr>'}
     </tbody><tfoot><tr><td colspan="7" class="r">Total material (before tax)</td><td class="r num">${money(bom.reduce((s,r)=>s+r.ext,0))}</td></tr></tfoot></table></div>
     <p class="hint" style="padding:0 16px 8px">The CSV has exactly KOJO's columns: Description, Est. Qty., UOM, MPN, UPC, Unit Price, Phase Code. MPN is the item's part number.</p></div>`;
-  $('#rpMh').onclick=exportManhours; $('#rpEq').onclick=exportEquipment; $('#rpMhP').onclick=pdfManhours; $('#rpEqP').onclick=pdfEquipment; $('#rpBom').onclick=()=>exportBom('csv'); $('#rpBomX').onclick=()=>exportBom('xlsx');
+  $('#rpMh').onclick=exportManhours; $('#rpEq').onclick=exportEquipment; $('#rpMhP').onclick=()=>pdfManhours(); $('#rpField').onclick=()=>pdfManhours(true);
+  $('#fieldPct').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null||v<0||v>=100) return flash(e.target,false); await saveJob({proposal:{...(S.job.proposal||{}), field_pct:v/100}}); flash(e.target,true); }; $('#rpEqP').onclick=pdfEquipment; $('#rpBom').onclick=()=>exportBom('csv'); $('#rpBomX').onclick=()=>exportBom('xlsx');
   const saveKj=async patch=>{ await saveJob({proposal:{...(S.job.proposal||{}), kojo:{...kojoCfg(), ...patch}}}); renderReports(); };
   $('#kjMode').onchange=e=>saveKj({mode:e.target.value});
   const kt=$('#kjText'); if(kt) kt.onchange=e=>saveKj({text:e.target.value.trim()||'Material Costs'});
@@ -1393,7 +1400,7 @@ function bomData(){
     const i=l.item_id?itemById(l.item_id):null; const phase = kj.mode==='code' ? (l.cost_code||'') : kj.text;
     const key=(l.item_id||('x:'+(l.description||'').trim().toLowerCase()+'|'+(l.unit||'')))+'|'+price+'|'+phase;
     const m=map[key]=map[key]||{part:i?.part_number||'', desc:l.description, mfr:i?.manufacturer||'', unit:l.unit||'', uom:String(l.unit||'').toUpperCase(), vendor:l.vendor||i?.vendor||'', price, phase, qty:0, ext:0, codes:new Set(), hl:!!i?.highlight};
-    m.qty+=tq; m.ext+=tq*price; if(l.cost_code) m.codes.add(l.cost_code); }));
+    m.qty+=tq; m.ext+=tq*price; if(l.need_quote) m.hl=true; if(l.cost_code) m.codes.add(l.cost_code); }));
   return Object.values(map).map(m=>({...m, codes:[...m.codes].sort(numCmp).join(', ')})).sort((a,b)=>a.desc.localeCompare(b.desc,undefined,{numeric:true}));
 }
 function exportBom(kind){
@@ -1424,8 +1431,12 @@ function reportFooter(doc){ const n=doc.getNumberOfPages(), H=doc.internal.pageS
 const TBL={ theme:'striped', styles:{fontSize:8.5,cellPadding:4,textColor:[27,27,27],lineColor:[225,230,238]}, headStyles:{fillColor:[0,0,0],textColor:255,fontStyle:'bold'},
   footStyles:{fillColor:[255,236,224],textColor:[0,0,0],fontStyle:'bold'}, alternateRowStyles:{fillColor:[248,250,252]} };
 const RT={halign:'right'};
-function pdfManhours(){
-  const mh=manhourData(); const many=mh.order.length>7; const r=reportDoc('Man-hours Report', true); if(!r) return; const {doc,M}=r; let y=r.y;
+function fieldPct(){ const v=(S.job.proposal||{}).field_pct; return v==null ? 0.10 : Number(v); }
+function pdfManhours(field){
+  const raw=manhourData(), f = field ? 1-fieldPct() : 1;
+  const mh={ order:raw.order, rows:raw.rows.map(r=>{ const m={}; Object.keys(r.m).forEach(k=>m[k]=r.m[k]*f); return {b:r.b, m, tot:r.tot*f}; }), byCode:raw.byCode.map(x=>({...x, hrs:x.hrs*f})), total:raw.total*f };
+  const many=mh.order.length>7; const r=reportDoc(field?'Field Report':'Man-hours Report', true); if(!r) return; const {doc,M}=r; let y=r.y;
+  if(field){ doc.setFont('helvetica','italic'); doc.setFontSize(9); doc.setTextColor(100,100,100); doc.text(`Man-hour budget for the field: ${num(fieldPct()*100,2)}% less than the estimate.`, M, y-10); doc.setTextColor(27,27,27); y+=6; }
   doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('By Phase Code', M, y); y+=6;
   doc.autoTable({...TBL, startY:y, margin:{left:M,right:M}, tableWidth:420,
     head:[['Code','Phase',{content:'Man-hours',styles:RT},{content:'% of Total',styles:RT}]],
@@ -1439,7 +1450,7 @@ function pdfManhours(){
     body:mh.rows.filter(x=>x.tot).map(x=>[x.b.item_no||'', x.b.description, ...codes.map(k=>({content:x.m[k]?num(x.m[k],2):'',styles:RT})), {content:num(x.tot,2),styles:{halign:'right',fontStyle:'bold'}}]),
     foot:[[{content:'TOTAL',colSpan:2,styles:RT}, ...codes.map(k=>({content:num(mh.byCode.find(z=>z.code===k).hrs,2),styles:RT})), {content:num(mh.total,2),styles:RT}]],
     columnStyles:{0:{cellWidth:52},1:{cellWidth:many?150:200}} });
-  reportFooter(doc); doc.save(`Manhours - ${fileTag()}.pdf`);
+  reportFooter(doc); doc.save(`${field?'Field Report':'Manhours'} - ${fileTag()}.pdf`);
 }
 function pdfEquipment(){
   const eq=equipData(); const r=reportDoc('Equipment Report', false); if(!r) return; const {doc,M}=r; let y=r.y;
@@ -1859,14 +1870,38 @@ function renderCompany(){
   const C=S.company; const f=(k,l,ta,cls,ph)=>`<div class="fld ${cls||''}"><label>${l}</label>${ta?`<textarea data-co="${k}" rows="${ta}" placeholder="${esc(ph||'')}">${esc(C[k])}</textarea>`:`<input data-co="${k}" value="${esc(C[k])}" placeholder="${esc(ph||'')}">`}</div>`;
   $('#coForm1').innerHTML = `${f('name','Company Name','','full')}${f('address','Address',3,'full')}${f('phone','Phone')}${f('email','Email')}${f('license','License #')}${f('website','Website')}
     <div class="fld full"><label>Logo (PNG or JPG)</label>${C.logo?`<img class="logo-prev" src="${C.logo}" alt="Logo">`:''}<input type="file" id="coLogo" accept="image/png,image/jpeg">${C.logo?' <button class="btn sm danger" id="coLogoRm" type="button">Remove logo</button>':''}</div>
-    ${f('signer_name','Default Signer')}${f('signer_title','Signer Title')}`;
+    ${f('signer_name','Default Signer')}${f('signer_title','Signer Title')}
+    <div class="fld full"><label>Signatures (used automatically on proposals)</label>
+      <div id="sigList" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px">${Object.entries(C.signatures||{}).map(([n,img])=>`<div class="card" style="padding:8px 10px;display:flex;align-items:center;gap:10px"><img src="${img}" alt="Signature of ${esc(n)}" style="height:40px;max-width:180px"><b style="font-size:12.5px">${esc(n)}</b><button class="icon-btn" data-sigrm="${esc(n)}" type="button" title="Remove">✕</button></div>`).join('') || '<span class="hint">No signatures saved yet.</span>'}</div>
+      <div class="card" style="padding:10px">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input id="sigName" class="sel" style="flex:1" placeholder="Name exactly as on proposals (e.g. ${esc(C.signer_name||'Samantha …')})" value="${esc(C.signer_name||'')}"><button class="btn sm sec" id="sigClear" type="button">Clear</button><label class="btn sm sec" style="cursor:pointer">Upload image<input type="file" id="sigFile" accept="image/png,image/jpeg" hidden></label><button class="btn sm" id="sigSave" type="button">Save signature</button></div>
+        <canvas id="sigPad" width="560" height="140" style="width:100%;max-width:560px;height:140px;border:1px dashed var(--line);border-radius:8px;background:#fff;touch-action:none;cursor:crosshair"></canvas>
+        <div class="hint">Sign in the box with your mouse or finger, or upload a picture of your signature.</div>
+      </div></div>`;
   $('#coForm2').innerHTML = `${f('intro','Opening Line',2,'full')}${f('inclusions','Standard Inclusions (one per line)',6,'full','e.g. Furnish and install items as listed above')}${f('exclusions','Standard Exclusions (one per line)',6,'full','e.g. Bonds, permits and fees unless listed')}${f('terms','Terms & Notes (one per line)',5,'full')}
     <div class="fld"><label>Valid for (days)</label><input data-co="validity_days" type="number" value="${esc(C.validity_days)}"></div>`;
   $('#coLogo').onchange=e=>{ const file=e.target.files[0]; if(!file) return; const img=new Image(); const rd=new FileReader();
     rd.onload=()=>{ img.onload=()=>{ const max=600, s=Math.min(1,max/Math.max(img.width,img.height)); const cv=document.createElement('canvas'); cv.width=Math.round(img.width*s); cv.height=Math.round(img.height*s);
       cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height); S.company.logo=cv.toDataURL('image/png'); saveCompany(); }; img.src=rd.result; }; rd.readAsDataURL(file); };
   const rm=$('#coLogoRm'); if(rm) rm.onclick=()=>{ S.company.logo=null; saveCompany(); };
+  // signature pad
+  const cv=$('#sigPad'), ctx=cv.getContext('2d'); let drawing=false, drawn=false, uploaded=null;
+  ctx.lineWidth=2.6; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#0b1b3a';
+  const pt=e=>{ const r=cv.getBoundingClientRect(); return [(e.clientX-r.left)*cv.width/r.width, (e.clientY-r.top)*cv.height/r.height]; };
+  cv.onpointerdown=e=>{ drawing=true; drawn=true; uploaded=null; cv.setPointerCapture(e.pointerId); const [x,y]=pt(e); ctx.beginPath(); ctx.moveTo(x,y); };
+  cv.onpointermove=e=>{ if(!drawing) return; const [x,y]=pt(e); ctx.lineTo(x,y); ctx.stroke(); };
+  cv.onpointerup=()=>{ drawing=false; };
+  $('#sigClear').onclick=()=>{ ctx.clearRect(0,0,cv.width,cv.height); drawn=false; uploaded=null; };
+  $('#sigFile').onchange=e=>{ const file=e.target.files[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>{ const img=new Image(); img.onload=()=>{ ctx.clearRect(0,0,cv.width,cv.height); const s=Math.min(cv.width/img.width, cv.height/img.height); const w=img.width*s, hh=img.height*s; ctx.drawImage(img,(cv.width-w)/2,(cv.height-hh)/2,w,hh); uploaded=true; drawn=true; }; img.src=rd.result; }; rd.readAsDataURL(file); };
+  $('#sigSave').onclick=async ()=>{ const n=$('#sigName').value.trim(); if(!n) return toast('Type the signer\'s name first',true); if(!drawn) return toast('Sign in the box or upload an image first',true);
+    // trim empty space around the signature
+    const d=ctx.getImageData(0,0,cv.width,cv.height).data; let x0=cv.width,y0=cv.height,x1=0,y1=0; for(let y=0;y<cv.height;y++) for(let x=0;x<cv.width;x++){ if(d[(y*cv.width+x)*4+3]>10){ if(x<x0)x0=x; if(y<y0)y0=y; if(x>x1)x1=x; if(y>y1)y1=y; } }
+    if(x1<=x0) return toast('Signature is empty',true); const pad=6; x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad); x1=Math.min(cv.width,x1+pad); y1=Math.min(cv.height,y1+pad);
+    const out=document.createElement('canvas'); out.width=x1-x0; out.height=y1-y0; out.getContext('2d').drawImage(cv,x0,y0,out.width,out.height,0,0,out.width,out.height);
+    S.company.signatures={...(S.company.signatures||{}), [n]:out.toDataURL('image/png')}; await saveCompany(); toast('Signature saved for '+n); };
+  document.querySelectorAll('[data-sigrm]').forEach(b=>b.onclick=async ()=>{ if(!confirm('Remove the signature for '+b.dataset.sigrm+'?')) return; const s={...(S.company.signatures||{})}; delete s[b.dataset.sigrm]; S.company.signatures=s; await saveCompany(); });
 }
+function sigFor(name){ const s=S.company.signatures||{}; const n=String(name||'').trim().toLowerCase(); const k=Object.keys(s).find(x=>x.trim().toLowerCase()===n); return k?s[k]:null; }
 async function saveCompany(){
   document.querySelectorAll('[data-co]').forEach(el=>{ const k=el.dataset.co; S.company[k] = k==='validity_days' ? (parseInt(el.value)||30) : (el.value.trim()||null); });
   const {id,updated_at,...rec}=S.company; const {error}=await sb.from('company_profile').update(rec).eq('id',1); if(error) return toast(error.message,true);
