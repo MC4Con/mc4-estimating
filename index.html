@@ -1155,13 +1155,17 @@ function renderProposal(){
     <div class="card"><div class="panel-h"><h3>Bid Items on the Proposal</h3><span class="spacer"></span><label class="chk">Show as <select class="sel" id="prMode" style="padding:5px 8px"><option value="unit" ${P.price_mode==='unit'?'selected':''}>Unit prices (qty, unit price, amount)</option><option value="amount" ${P.price_mode==='amount'?'selected':''}>Amounts only</option><option value="lump" ${P.price_mode==='lump'?'selected':''}>Lump sum (qty &amp; units, one price)</option></select></label></div>
       <div style="max-height:52vh;overflow:auto"><table class="grid"><thead><tr><th style="width:40px"></th><th style="width:90px">Item</th><th>Description</th><th class="r" style="width:130px">Amount</th></tr></thead><tbody id="prItems">
       ${S.bis.map(b=>`<tr data-id="${b.id}"><td class="c"><input type="checkbox" ${b.in_proposal!==false?'checked':''}></td><td class="pad mono">${esc(b.item_no)}</td><td class="pad">${esc(b.description)}</td><td class="r pad num">${money(calcItem(b).amount)}</td></tr>`).join('')}</tbody></table></div>
-      <div class="panel-h" style="border-top:1px solid var(--line);border-bottom:0"><span class="hint" id="prTot"></span><span id="prWarn"></span><span class="spacer"></span><button class="btn sec" id="prPrev">Preview</button><button class="btn dark" id="prDl">Download PDF</button></div></div></div>`;
+      <div class="panel-h" style="border-top:1px solid var(--line);border-bottom:0"><span class="hint" id="prTot"></span><span id="prWarn"></span><span class="spacer"></span><span id="prSigTag"></span><button class="btn sec" id="prPrev">Preview</button><button class="btn dark" id="prDl">Download PDF</button></div></div></div>`;
+  const updSig=()=>{ const n=($('[data-p=signer_name]').value||'').trim(), on=$('#prSign').checked, has=!!sigFor(n);
+    $('#prSigTag').innerHTML = !on ? '<span class="tag warn" title="Turn on “Sign automatically and date it” to add the signature">PDF will NOT be signed — auto-sign is off</span>'
+      : has ? '<span class="tag ok">✔ Signed by '+esc(n)+'</span>' : '<span class="tag warn">PDF will NOT be signed — no saved signature for “'+esc(n)+'”</span>'; };
   const updTot=()=>{ const t=S.bis.filter(b=>b.in_proposal!==false).reduce((s,b)=>s+calcItem(b).amount,0); $('#prTot').innerHTML=`Proposal total: <b class="num">${money(t)}</b>`; const z=S.bis.filter(b=>b.in_proposal!==false && !calcItem(b).amount).length; $('#prWarn').innerHTML=z?`<span class="tag warn">${z} item${z>1?'s':''} at $0 — not priced yet</span>`:''; }; updTot();
   $('#jBody').querySelector('.form').onchange=async e=>{ const k=e.target.dataset.p; if(!k) return; const p={...(S.job.proposal||{}), [k]: k==='validity'?parseNum(e.target.value):e.target.value};
     const ok=await saveJob({proposal:p}); flash(e.target,ok); };
   $('#prMode').onchange=e=>saveJob({proposal:{...(S.job.proposal||{}), price_mode:e.target.value, show_unit:e.target.value==='unit'}});
-  $('#prSign').onchange=e=>saveJob({proposal:{...(S.job.proposal||{}), auto_sign:e.target.checked}});
-  $('[data-p=signer_name]').addEventListener('change',e=>{ const n=e.target.value.trim(); $('#prSigNote').innerHTML = sigFor(n)?'✔ Signature on file for '+esc(n):'No saved signature for “'+esc(n)+'” — add one under Company &amp; Proposal → Signatures.'; });
+  $('#prSign').onchange=e=>{ updSig(); saveJob({proposal:{...(S.job.proposal||{}), auto_sign:e.target.checked}}); };
+  $('[data-p=signer_name]').addEventListener('change',e=>{ const n=e.target.value.trim(); $('#prSigNote').innerHTML = sigFor(n)?'✔ Signature on file for '+esc(n):'No saved signature for “'+esc(n)+'” — add one under Company &amp; Proposal → Signatures.'; updSig(); });
+  updSig();
   $('#prItems').onchange=async e=>{ const id=e.target.closest('tr').dataset.id; await saveBI(id,{in_proposal:e.target.checked}); updTot(); };
   $('#prReset').onclick=async ()=>{ const C=S.company; const p={...(S.job.proposal||{}), intro:C.intro||'', inclusions:C.inclusions||'', exclusions:C.exclusions||'', terms:C.terms||'', validity:C.validity_days||30, signer_name:C.signer_name||'', signer_title:C.signer_title||''};
     await saveJob({proposal:p}); renderProposal(); };
@@ -1235,7 +1239,7 @@ function buildProposal(){
   need(110); doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(...NAVY);
   const cx=W/2+10; doc.text('SUBMITTED BY', M, y); doc.text('ACCEPTED BY', cx, y); y+=34;
   const sig = P.auto_sign!==false ? sigFor(P.signer_name) : null;
-  if(sig){ try{ const ip=doc.getImageProperties(sig); let hh=30, w=ip.width*hh/ip.height; if(w>210){ w=210; hh=ip.height*w/ip.width; } doc.addImage(sig,'PNG',M+2,y-hh-1,w,hh); }catch(e){} }
+  if(sig){ try{ const ip=doc.getImageProperties(sig); let hh=30, w=ip.width*hh/ip.height; if(w>210){ w=210; hh=ip.height*w/ip.width; } doc.addImage(sig,'PNG',M+2,y-hh-1,w,hh); }catch(e){ toast('Signature image could not be added: '+e.message,true); } }
   doc.setDrawColor(150); doc.setLineWidth(.6); doc.line(M,y,M+220,y); doc.line(cx,y,W-M,y); y+=12;
   doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(27,37,51);
   doc.text([P.signer_name,P.signer_title].filter(Boolean).join(', ')||'Signature', M, y); doc.text('Signature', cx, y); y+=12;
