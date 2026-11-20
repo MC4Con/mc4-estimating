@@ -118,6 +118,10 @@ tr.item-ready td{background:#f3fbf5}
 
 .asm-layout{display:grid;grid-template-columns:320px 1fr;gap:16px;align-items:start}
 .side-list{max-height:calc(100vh - 230px);overflow:auto}
+.cat-tabs{display:flex;gap:6px;flex-wrap:wrap;padding:10px 10px 0}
+.cat-tabs button{border:1px solid var(--line);background:#fff;border-radius:16px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--muted)}
+.cat-tabs button.on{background:#111;color:#fff;border-color:#111}
+.cat-tabs button .n{opacity:.6;font-weight:500;margin-left:4px}
 .side-list .it{padding:10px 14px;border-bottom:1px solid var(--line2);cursor:pointer}
 .side-list .it:hover{background:var(--row-hover)}
 .side-list .it.on{background:#fff1e8;border-left:3px solid var(--accent);padding-left:11px}
@@ -306,6 +310,7 @@ tr.item-ready td{background:#f3fbf5}
   </div>
   <div class="asm-layout">
     <div class="card">
+      <div class="cat-tabs" id="aCats"></div>
       <div style="padding:10px"><input class="search" id="aSearch" placeholder="Search assemblies…" style="width:100%;min-width:0"></div>
       <div class="side-list" id="aList"></div>
     </div>
@@ -413,7 +418,7 @@ const ROUND_MODES = [['auto','Auto — up to $1 if ≥ $100, else up to $0.10'],
 
 const sb = supabase.createClient(SB_URL, SB_KEY);
 const S = { items:[], codes:[], settings:[], equipment:[], ops:[], opEq:[], assemblies:[], lines:[], company:{}, jobs:[],
-  sort:{k:'description',d:1}, asmSel:null, history:[], imp:null,
+  sort:{k:'description',d:1}, asmSel:null, asmCat:'MC4', history:[], imp:null,
   job:null, bis:[], bls:[], jobTab:'sheet', biSel:null };
 
 /* ================= HELPERS ================= */
@@ -1027,13 +1032,15 @@ function lineFromItem(i, qty, mode, source, ccOverride, asm){ return { item_id:i
   qty, qty_mode:i.default_total?'total':(mode||'per'), unit_price:Number(i.unit_price), labor_hours:Number(i.labor_hours), cat_price:Number(i.unit_price), cat_labor:Number(i.labor_hours), cat_op:i.operation_id||null, vendor:i.vendor, quote_url:i.quote_url, source, is_sub:!!i.is_sub, ...(asm||{}) }; }
 
 function pickAssembly(b){
-  const draw=()=>{ const q=($('#paQ')?.value||'').trim().toLowerCase();
-    $('#paL').innerHTML = S.assemblies.filter(a=>a.active!==false && (!q||a.name.toLowerCase().includes(q)||(a.bid_item_codes||'').includes(q))).map(a=>{
+  let cat = /ndot/i.test(S.job.owner||'') && asmCats().includes('NDOT') ? 'NDOT' : (S.lastPickCat||'MC4');
+  const draw=()=>{ const q=($('#paQ')?.value||'').trim().toLowerCase(); $('#paCats').innerHTML=catTabsHtml(cat,true);
+    $('#paL').innerHTML = S.assemblies.filter(a=>a.active!==false && (cat==='*'||asmCatOf(a)===cat) && (!q||a.name.toLowerCase().includes(q)||(a.bid_item_codes||'').includes(q))).map(a=>{
       const linked=(a.bid_item_codes||'').split(',').map(normCode).filter(Boolean).includes(normCode(b.item_no));
       return `<div class="p ${linked?'on':''}" data-id="${a.id}"><span class="d"><b>${esc(a.name)}</b>${a.notes?`<div class="hint">${esc(a.notes)}</div>`:''}</span>${linked?'<span class="tag ok">linked to '+esc(b.item_no)+'</span>':''}<span class="c">${expandAsm(a.id).length} parts · per ${esc(a.unit)}</span></div>`; }).join('') || '<div class="empty">No assemblies</div>'; };
   modal(`<div class="modal-h"><h3>Add from Master Assembly</h3><button class="icon-btn" data-close>✕</button></div>
-    <div class="modal-b"><input class="search" id="paQ" placeholder="Search assemblies…" style="width:100%"><div class="pick-list" id="paL"></div></div>`, true);
+    <div class="modal-b"><div class="cat-tabs" id="paCats" style="padding:0 0 10px"></div><input class="search" id="paQ" placeholder="Search assemblies…" style="width:100%"><div class="pick-list" id="paL"></div></div>`, true);
   $('#paQ').oninput=draw; draw(); $('#paQ').focus();
+  $('#paCats').onclick=e=>{ const bt=e.target.closest('[data-cat]'); if(!bt) return; cat=bt.dataset.cat; S.lastPickCat=cat; draw(); };
   $('#paL').onclick=e=>{ const p=e.target.closest('.p'); if(p) pickParts(b, S.assemblies.find(a=>a.id===p.dataset.id)); };
 }
 function pickParts(b, a){
@@ -1657,16 +1664,23 @@ function asmCalc(aid){
   const subLoaded = sub*(1+setting('sub_markup'));
   return { n:ls.length, mat:mat+sub, hrs, matLoaded, labLoaded, subLoaded, total:matLoaded+labLoaded+subLoaded };
 }
+const asmCatOf=a=>a.catalog||'MC4';
+function asmCats(){ return [...new Set(['MC4',...S.assemblies.map(asmCatOf)])].sort((x,y)=>x==='MC4'?-1:y==='MC4'?1:x.localeCompare(y)); }
+function catTabsHtml(cur, withAll){ return (withAll?[['*','All',S.assemblies.filter(a=>a.active!==false).length]]:[]).concat(asmCats().map(c=>[c,c+' Assemblies',S.assemblies.filter(a=>asmCatOf(a)===c&&(withAll?a.active!==false:true)).length]))
+  .map(([v,l,n])=>`<button data-cat="${esc(v)}" class="${v===cur?'on':''}">${esc(l)}<span class="n">${n}</span></button>`).join(''); }
 function renderAsmList(){
   const q=$('#aSearch').value.trim().toLowerCase();
-  const list=S.assemblies.filter(a=>!q||a.name.toLowerCase().includes(q)||(a.bid_item_codes||'').includes(q));
+  if(!asmCats().includes(S.asmCat)) S.asmCat='MC4';
+  $('#aCats').innerHTML=catTabsHtml(S.asmCat,false);
+  const list=S.assemblies.filter(a=>asmCatOf(a)===S.asmCat && (!q||a.name.toLowerCase().includes(q)||(a.bid_item_codes||'').includes(q))).sort((x,y)=>x.name.localeCompare(y.name,undefined,{numeric:true}));
   $('#aList').innerHTML = list.map(a=>{ const c=asmCalc(a.id); return `<div class="it ${a.id===S.asmSel?'on':''}" data-id="${a.id}">
     <div class="n">${esc(a.name)}</div><div class="m"><span>${c.n} parts${S.lines.some(l=>l.assembly_id===a.id&&l.child_assembly_id)?' · has sub-assemblies':''}</span><span class="num">${money(c.total)}/${esc(a.unit)}</span>${a.bid_item_codes?`<span class="mono">#${esc(a.bid_item_codes)}</span>`:''}</div></div>`; }).join('') || '<div class="empty">No assemblies</div>';
 }
 $('#aSearch').addEventListener('input',renderAsmList);
+$('#aCats').addEventListener('click',e=>{ const bt=e.target.closest('[data-cat]'); if(!bt) return; S.asmCat=bt.dataset.cat; renderAsmList(); });
 $('#aList').addEventListener('click',e=>{ const it=e.target.closest('.it'); if(!it) return; S.asmSel=it.dataset.id; renderAsmList(); renderAsmDetail(); });
 $('#aNew').onclick = async ()=>{
-  const {data,error}=await sb.from('assemblies').insert({name:'New Assembly',unit:'ea'}).select().single();
+  const {data,error}=await sb.from('assemblies').insert({name:'New Assembly',unit:'ea',catalog:S.asmCat}).select().single();
   if(error) return toast(error.message,true);
   S.assemblies.push(data); S.asmSel=data.id; renderAsmList(); renderAsmDetail(); $('#aName').select();
 };
@@ -1680,6 +1694,7 @@ function renderAsmDetail(){
       <div class="fld"><label>Assembly Name</label><input id="aName" value="${esc(a.name)}"></div>
       <div class="fld"><label>Per</label><input id="aUnit" list="unitList" value="${esc(a.unit)}"></div>
       <div class="fld"><label>Cost Code</label><select id="aCode">${codeOptions(a.cost_code,'—')}</select></div>
+      <div class="fld"><label>Catalog</label><input id="aCat" list="aCatList" value="${esc(asmCatOf(a))}" title="Pick a catalog, or type a new name to start a new one (e.g. Clark County)"><datalist id="aCatList">${asmCats().map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
       <div class="fld" style="grid-column:1/3"><label>Notes</label><input id="aNotes" value="${esc(a.notes)}"></div>
       <div class="fld"><label>Linked owner bid item #s</label><input id="aCodes" class="mono" placeholder="e.g. 672.01, 672.02" value="${esc(a.bid_item_codes)}" title="When you import bid items with these numbers, this assembly's standard parts are added automatically"></div>
     </div>
@@ -1710,6 +1725,7 @@ function renderAsmDetail(){
   $('#aUnit').onchange = e=>{ saveA({unit:e.target.value.trim()||'ea'}).then(renderAsmDetail); };
   $('#aCode').onchange = e=> saveA({cost_code:e.target.value||null});
   $('#aNotes').onchange = e=> saveA({notes:e.target.value.trim()||null});
+  $('#aCat').onchange = async e=>{ const v=e.target.value.trim()||'MC4'; e.target.value=v; await saveA({catalog:v}); S.asmCat=v; renderAsmList(); flash(e.target,true); };
   $('#aCodes').onchange = e=> saveA({bid_item_codes:e.target.value.split(',').map(s=>s.trim()).filter(Boolean).join(', ')||null}).then(()=>flash(e.target,true));
   $('#aAdd').onclick = ()=> pickItem(async picks=>{
     let s=ls.length?Math.max(...ls.map(l=>l.sort||0)):0;
@@ -1719,7 +1735,7 @@ function renderAsmDetail(){
   });
   $('#aDel').onclick = async ()=>{ const par=[...new Set(S.lines.filter(l=>l.child_assembly_id===a.id).map(l=>(asmById(l.assembly_id)||{}).name))]; if(par.length) return toast(`Used inside ${par.join(', ')} — remove it there first`,true); if(!confirm(`Delete assembly “${a.name}”? (Estimates keep their copied lines.)`)) return; const {error}=await sb.from('assemblies').delete().eq('id',a.id); if(error) return toast(error.message,true);
     S.assemblies=S.assemblies.filter(x=>x.id!==a.id); S.lines=S.lines.filter(l=>l.assembly_id!==a.id); S.asmSel=null; renderAsmList(); renderAsmDetail(); };
-  $('#aDup').onclick = async ()=>{ const {data,error}=await sb.from('assemblies').insert({name:a.name+' (copy)',unit:a.unit,cost_code:a.cost_code,notes:a.notes}).select().single(); if(error) return toast(error.message,true);
+  $('#aDup').onclick = async ()=>{ const {data,error}=await sb.from('assemblies').insert({name:a.name+' (copy)',unit:a.unit,cost_code:a.cost_code,notes:a.notes,catalog:asmCatOf(a)}).select().single(); if(error) return toast(error.message,true);
     const rows=ls.map(l=>({assembly_id:data.id,item_id:l.item_id,child_assembly_id:l.child_assembly_id||null,qty_per:l.qty_per,cost_code:l.cost_code,sort:l.sort,optional:l.optional}));
     if(rows.length){ const r=await sb.from('assembly_items').insert(rows).select(); if(r.error) return toast(r.error.message,true); S.lines.push(...r.data); }
     S.assemblies.push(data); S.asmSel=data.id; renderAsmList(); renderAsmDetail(); toast('Duplicated'); };
@@ -1968,9 +1984,9 @@ $('#xAll').onclick=()=>{
   XLSX.utils.book_append_sheet(wb,itemsSheet(sorted),'Items');
   const al=[]; S.assemblies.forEach(a=>{ const c=asmCalc(a.id);
     S.lines.filter(l=>l.assembly_id===a.id).sort((x,y)=>(x.sort||0)-(y.sort||0)).forEach(l=>{ if(l.child_assembly_id){ const ch=asmById(l.child_assembly_id)||{}; const cc=ch.id?asmCalc(ch.id):{mat:0,hrs:0};
-        al.push({'Assembly':a.name,'Per':a.unit,'Linked Bid Items':a.bid_item_codes||'','Item':'[Assembly] '+(ch.name||'?'),'Item Unit':ch.unit,'Qty Per':Number(l.qty_per),'Optional':l.optional?'Yes':'','Cost Code':l.cost_code||'','Unit Price':cc.mat,'Material':l.qty_per*cc.mat,'Labor Hrs':l.qty_per*cc.hrs}); return; }
+        al.push({'Catalog':asmCatOf(a),'Assembly':a.name,'Per':a.unit,'Linked Bid Items':a.bid_item_codes||'','Item':'[Assembly] '+(ch.name||'?'),'Item Unit':ch.unit,'Qty Per':Number(l.qty_per),'Optional':l.optional?'Yes':'','Cost Code':l.cost_code||'','Unit Price':cc.mat,'Material':l.qty_per*cc.mat,'Labor Hrs':l.qty_per*cc.hrs}); return; }
       const i=itemById(l.item_id)||{};
-      al.push({'Assembly':a.name,'Per':a.unit,'Linked Bid Items':a.bid_item_codes||'','Item':i.description,'Item Unit':i.unit,'Qty Per':Number(l.qty_per),'Optional':l.optional?'Yes':'','Cost Code':l.cost_code||i.cost_code||'','Unit Price':Number(i.unit_price||0),'Material':l.qty_per*(i.unit_price||0),'Labor Hrs':l.qty_per*(i.labor_hours||0)}); });
+      al.push({'Catalog':asmCatOf(a),'Assembly':a.name,'Per':a.unit,'Linked Bid Items':a.bid_item_codes||'','Item':i.description,'Item Unit':i.unit,'Qty Per':Number(l.qty_per),'Optional':l.optional?'Yes':'','Cost Code':l.cost_code||i.cost_code||'','Unit Price':Number(i.unit_price||0),'Material':l.qty_per*(i.unit_price||0),'Labor Hrs':l.qty_per*(i.labor_hours||0)}); });
     al.push({'Assembly':a.name+' — TOTAL (std parts) / '+a.unit,'Material':c.mat,'Labor Hrs':c.hrs}); al.push({}); });
   const wsA=XLSX.utils.json_to_sheet(al); wsA['!cols']=[{wch:44},{wch:5},{wch:14},{wch:42},{wch:8},{wch:9},{wch:8},{wch:10},{wch:11},{wch:11},{wch:10}];
   XLSX.utils.book_append_sheet(wb,wsA,'Assemblies');
