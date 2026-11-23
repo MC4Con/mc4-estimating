@@ -1492,6 +1492,11 @@ function renderReports(){
       </tbody><tfoot><tr><td class="r">Total</td><td class="r num">${num(eq.hrs,2)}</td><td class="r num">${num(eq.hrs/8,2)}</td><td class="r num">${money(eq.cost)}</td></tr></tfoot></table>
       <p class="hint" style="padding:0 16px 8px">Cost is before equipment markup. The Excel also lists equipment by bid item.</p></div>
   </div>
+  <div class="card" style="margin-top:16px"><div class="panel-h"><h3>QuickBooks Budget</h3><span class="hint">Laid out like your QuickBooks estimate: a group per bid item, Material &amp; Labor per cost code, Equipment Rental. Totals match the bid.</span><span class="spacer"></span><button class="btn sm" id="rpQB" data-keep="1">Excel</button></div>
+    <div style="max-height:420px;overflow:auto"><table class="grid"><thead><tr><th style="width:150px">Item</th><th>Description</th><th class="r" style="width:90px">Qty</th><th class="r" style="width:90px">Cost</th><th class="r" style="width:110px">Total Cost</th><th class="r" style="width:100px">Markup</th><th class="r" style="width:110px">Total</th></tr></thead><tbody>
+    ${(()=>{ const d=qbData(); return d.items.map(g=>`<tr class="group"><td class="mono">${esc(g.group)}</td><td></td><td class="r num">${num(g.qty,2)}</td><td colspan="4"></td></tr>${g.lines.map(x=>`<tr><td class="pad mono">${esc(x.item)}</td><td class="pad">${esc(x.desc)}</td><td class="r num pad">${num(x.qty,2)}</td><td class="r num pad">${num(x.unit,4)}</td><td class="r num pad">${num(x.cost,2)}</td><td class="r num pad">${num(x.mk,2)}</td><td class="r num pad">${num(x.tot,2)}</td></tr>`).join('')}<tr><td></td><td class="pad hint">${esc(g.b.description)}</td><td colspan="4"></td><td class="r num pad"><b>${num(g.amount,2)}</b></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No priced bid items yet</td></tr>'; })()}
+    </tbody></table></div>
+    <p class="hint" style="padding:0 16px 8px">Cost is before markup (material includes sales tax; material handling is spread over the labor codes). Markup is set so each bid item's Total matches its bid amount.</p></div>
   <div class="card" style="margin-top:16px"><div class="panel-h"><h3>Bill of Materials (KOJO)</h3><span class="hint">${bom.length} materials · identical items combined · labor-only lines left off</span><span class="spacer"></span>
       <label class="chk">Phase Code <select class="sel" id="kjMode" style="padding:5px 8px"><option value="fixed" ${kj.mode!=='code'?'selected':''}>Same for all lines</option><option value="code" ${kj.mode==='code'?'selected':''}>Each line's cost code</option></select></label>
       ${kj.mode!=='code'?`<input class="sel" id="kjText" style="width:150px;padding:5px 8px" value="${esc(kj.text)}">`:''}
@@ -1500,7 +1505,7 @@ function renderReports(){
     ${bom.map(r=>`<tr class="${r.hl?'hl':''}"><td class="pad">${esc(r.desc)}</td><td class="r num pad">${num(r.qty,4)}</td><td class="pad">${esc(r.uom)}</td><td class="pad mono">${esc(r.part)}</td><td class="pad"></td><td class="r num pad">${money(r.price)}</td><td class="pad">${esc(r.phase)}</td><td class="r num pad">${money(r.ext)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No materials yet</td></tr>'}
     </tbody><tfoot><tr><td colspan="7" class="r">Total material (before tax)</td><td class="r num">${money(bom.reduce((s,r)=>s+r.ext,0))}</td></tr></tfoot></table></div>
     <p class="hint" style="padding:0 16px 8px">The CSV has exactly KOJO's columns: Description, Est. Qty., UOM, MPN, UPC, Unit Price, Phase Code. MPN is the item's part number.</p></div>`;
-  $('#rpMh').onclick=exportManhours; $('#rpEq').onclick=exportEquipment; $('#rpMhP').onclick=()=>pdfManhours(); $('#rpField').onclick=()=>pdfManhours(true);
+  $('#rpQB').onclick=exportQB; $('#rpMh').onclick=exportManhours; $('#rpEq').onclick=exportEquipment; $('#rpMhP').onclick=()=>pdfManhours(); $('#rpField').onclick=()=>pdfManhours(true);
   $('#fieldPct').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null||v<0||v>=100) return flash(e.target,false); await saveJob({proposal:{...(S.job.proposal||{}), field_pct:v/100}}); flash(e.target,true); }; $('#rpEqP').onclick=pdfEquipment; $('#rpBom').onclick=()=>exportBom('csv'); $('#rpBomX').onclick=()=>exportBom('xlsx');
   const saveKj=async patch=>{ await saveJob({proposal:{...(S.job.proposal||{}), kojo:{...kojoCfg(), ...patch}}}); renderReports(); };
   $('#kjMode').onchange=e=>saveKj({mode:e.target.value});
@@ -1530,6 +1535,40 @@ function exportEquipment(){
   const w2=XLSX.utils.aoa_to_sheet(d); w2['!cols']=[{wch:11},{wch:40},{wch:24},{wch:26},{wch:6},{wch:10},{wch:10},{wch:12}];
   fmtNum(w2,['F'],'#,##0.00',1); fmtNum(w2,['G','H'],'$#,##0.00',1); XLSX.utils.book_append_sheet(wb,w2,'By Bid Item');
   XLSX.writeFile(wb,`Equipment - ${fileTag()}.xlsx`);
+}
+// ---- QuickBooks budget (estimate layout: group per bid item, Material/Labor per cost code, Equipment Rental)
+function qbData(){
+  const J=S.job, out=[]; let grand=0;
+  S.bis.forEach(b=>{ const c=calcItem(b), q=Number(b.qty)||0; if(!c.amount && !c.total) return;
+    const rows=codeBreakdown(b,c).map(r=>({...r}));
+    // spread material-handling labor over the labor codes by hours
+    const mh=rows.find(r=>r.code==='MH'); const lr=rows.filter(r=>r.code!=='MH' && r.lab>0);
+    if(mh && lr.length){ const th=lr.reduce((s,r)=>s+r.hrs,0)||1; lr.forEach(r=>{ const sh=th?r.hrs/th:1/lr.length; r.lab+=mh.lab*sh; r.hrs+=mh.hrs*sh; }); mh.lab=0; mh.hrs=0; }
+    const L=[]; let eq=0;
+    rows.forEach(r=>{ const code=r.code==='—'?'':r.code, nm=codeLabel(r.code)||code;
+      if(r.mat>0){ const cost=r.mat*(1+Number(J.tax_rate||0)); L.push({item:code?`${code}:${code}M`:'Material', desc:(nm?nm+' - ':'')+'Material', cost, tot:cost*(1+Number(J.material_markup||0))}); }
+      if(r.lab>0){ L.push({item:code||'Labor', desc:(nm?nm+' - ':'')+'Labor', cost:r.lab, tot:r.lab*(1+Number(J.labor_markup||0))}); }
+      if(r.sub>0){ L.push({item:code?`${code}:${code}S`:'Subcontract', desc:(nm?nm+' - ':'')+'Subcontract', cost:r.sub, tot:r.sub*(1+c.subPct)}); }
+      eq+=r.eq; });
+    if(eq>0) L.push({item:'Equipment Rental', desc:'Equipment Rental', cost:eq, tot:eq*(1+Number(J.equipment_markup||0))});
+    // make the line totals add up to the bid amount (rounding / manual price)
+    const st=L.reduce((s,x)=>s+x.tot,0), f=st?c.amount/st:1;
+    L.forEach(x=>{ x.cost=Math.round(x.cost*100)/100; x.tot=Math.round(x.tot*f*100)/100; });
+    const diff=Math.round((c.amount-L.reduce((s,x)=>s+x.tot,0))*100)/100; if(L.length && diff) L[L.length-1].tot=Math.round((L[L.length-1].tot+diff)*100)/100;
+    L.forEach(x=>{ x.qty=q; x.unit=q?x.cost/q:0; x.mk=Math.round((x.tot-x.cost)*100)/100; });
+    out.push({b, group:(b.item_no||'')+'G', qty:q, lines:L, amount:Math.round(c.amount*100)/100}); grand+=c.amount; });
+  return {items:out, total:Math.round(grand*100)/100};
+}
+function exportQB(){
+  const d=qbData(), wb=XLSX.utils.book_new();
+  const a=[['Item','Description','Qty','Cost','Total Cost','Markup','Total']];
+  d.items.forEach(g=>{ a.push([g.group,'',g.qty,'','','','']);
+    g.lines.forEach(x=>a.push([x.item,x.desc,x.qty,Math.round(x.unit*10000)/10000,x.cost,x.mk,x.tot]));
+    a.push(['',g.b.description||'','','','','',g.amount],[]); });
+  a.push(['','TOTAL','','',d.items.reduce((s,g)=>s+g.lines.reduce((t,x)=>t+x.cost,0),0),d.items.reduce((s,g)=>s+g.lines.reduce((t,x)=>t+x.mk,0),0),d.total]);
+  const ws=XLSX.utils.aoa_to_sheet(a); ws['!cols']=[{wch:18},{wch:60},{wch:10},{wch:10},{wch:13},{wch:12},{wch:13}];
+  fmtNum(ws,['C'],'#,##0.####',1); fmtNum(ws,['D'],'#,##0.0000',1); fmtNum(ws,['E','F','G'],'#,##0.00',1);
+  XLSX.utils.book_append_sheet(wb,ws,'QuickBooks Budget'); XLSX.writeFile(wb,`QuickBooks Budget - ${fileTag()}.xlsx`);
 }
 function kojoCfg(){ const k=(S.job.proposal||{}).kojo||{}; return {mode:k.mode||'fixed', text:k.text||'Material Costs'}; }
 function bomData(){
