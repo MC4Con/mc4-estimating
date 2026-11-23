@@ -593,7 +593,7 @@ $('#jNew').onclick = ()=>{
     const name=$('#njName').value.trim(); if(!name) return toast('Project name is required',true);
     const rec={ name, job_number:$('#njNum').value.trim()||null, bid_date:$('#njDate').value||null, owner:$('#njOwner').value.trim()||null, location:$('#njLoc').value.trim()||null,
       material_markup:setting('material_markup'), tax_rate:setting('tax_rate'), labor_rate:setting('labor_rate'), labor_markup:setting('labor_markup'), equipment_markup:setting('equipment_markup'), sub_markup:setting('sub_markup'),
-      super_rate:setting('super_rate')||setting('labor_rate'), mh_pct:setting('mat_handling_pct'), mob_pct:(S.settings.some(s=>s.key==='mob_super_pct')?setting('mob_super_pct'):0.05),
+      super_rate:setting('super_rate')||setting('labor_rate'), mh_pct:setting('mat_handling_pct'), mob_pct:(S.settings.some(s=>s.key==='mob_super_pct')?setting('mob_super_pct'):0.05), mob_total_pct:(S.settings.some(s=>s.key==='mob_total_pct')?setting('mob_total_pct'):0.03),
       ops:snapshotOps(), proposal:{}, created_by:S.user };
     const r=await sb.from('jobs').insert(rec).select().single(); if(await dbErr(r,'Create')) return;
     S.jobs.unshift(r.data); closeModal(); openJob(r.data.id, 'sheet', true);
@@ -688,10 +688,13 @@ function calcItem(bi){
     ops.push({id:'_extra', name:'Other equipment (this item only)', hrs:0, crew:0, hpd:0, calcDays:0, days:0, override:false, equip, cost, extra:true}); }
   const eqOH=eq*J.equipment_markup, eqT=eq+eqOH;
   const subPct=Number(J.sub_markup ?? 0.30), subOH=sub*subPct, subT=sub+subOH;
-  const total=matT+labT+eqT+subT, calcUnit=q?total/q:0, rounded=roundUp(calcUnit,J.round_mode||'auto');
+  const built=matT+labT+eqT+subT; let total=built, mobTarget=null, mobPlug=0, mobOthers=0; const mp=Number(J.mob_total_pct||0);
+  if(bi.is_mob && mp>0 && mp<1){ const nMob=S.bis.filter(x=>x.is_mob).length||1; mobOthers=S.bis.filter(x=>!x.is_mob).reduce((s,x)=>s+calcItem(x).amount,0);
+    mobTarget=Math.round(mobOthers*mp/(1-mp)/nMob*100)/100; mobPlug=mobTarget-built; total=mobTarget; }
+  const calcUnit=q?total/q:0, rounded = mobTarget!=null ? Math.round(calcUnit*100)/100 : roundUp(calcUnit,J.round_mode||'auto');
   const manual = bi.manual_unit_price!=null && bi.manual_unit_price!=='';
   const unit = manual ? Number(bi.manual_unit_price) : rounded;
-  return { q, n:ls.length, sup, crewHrs, mhHrs, mhPct, noOpHrs, backed:ls.length>0||!!(sup&&sup.hrs), mat, tax, matOH, matT, hrs, lab, labOH, labT, ops, eq, eqOH, eqT, sub, subPct, subOH, subT, total, calcUnit, rounded, manual, unit, amount:unit*q };
+  return { q, n:ls.length, sup, crewHrs, mhHrs, mhPct, noOpHrs, backed:ls.length>0||!!(sup&&sup.hrs), mat, tax, matOH, matT, hrs, lab, labOH, labT, ops, eq, eqOH, eqT, sub, subPct, subOH, subT, built, mobTarget, mobPlug, mobOthers, mobPct:mp, total, calcUnit, rounded, manual, unit, amount:unit*q };
 }
 function jobTotals(){
   const t={amount:0,matT:0,labT:0,eqT:0,subT:0,hrs:0,cost:0};
@@ -1024,7 +1027,7 @@ function renderBdSum(){
   box.innerHTML = `<div class="sum-grid" ${c.sub?'style="grid-template-columns:repeat(4,minmax(0,1fr))"':''}>
     <div class="sum-col"><h4>Material</h4>${r('Material cost',money(c.mat))}${r('Tax '+pctTxt(J.tax_rate),money(c.tax))}${r('OH/P '+pctTxt(J.material_markup),money(c.matOH))}${r('Total material',money(c.matT),'t')}</div>
     <div class="sum-col"><h4>Labor</h4>${r(num(c.crewHrs,4)+' crew hrs × '+money(J.labor_rate),money(c.crewHrs*J.labor_rate))}${c.mhHrs?r(num(c.mhHrs,4)+' mat. handling hrs ('+num(c.mhPct*100,2)+'%)',money(c.mhHrs*J.labor_rate)):''}${c.sup?r(num(c.sup.hrs,4)+' super hrs × '+money(c.sup.rate),money(c.sup.cost)):''}${r('OH/P '+pctTxt(J.labor_markup),money(c.labOH))}${r('Total labor',money(c.labT),'t')}${r('Labor % of total',c.total?num(c.labT/c.total*100,1)+'%':'—')}</div>
-    <div class="sum-col"><h4>Equipment</h4>${r('Equipment',money(c.eq))}${r('OH/P '+pctTxt(J.equipment_markup),money(c.eqOH))}${r('Total equipment',money(c.eqT),'t')}${c.sub?'':r('<b>Item total</b>','<b>'+money(c.total)+'</b>')}</div>
+    <div class="sum-col"><h4>Equipment</h4>${r('Equipment',money(c.eq))}${r('OH/P '+pctTxt(J.equipment_markup),money(c.eqOH))}${r('Total equipment',money(c.eqT),'t')}${c.mobTarget!=null?r('1020 balance to reach '+pctTxt(c.mobPct),money(c.mobPlug)):''}${c.sub?'':r('<b>Item total</b>','<b>'+money(c.total)+'</b>')}</div>
     ${c.sub?`<div class="sum-col"><h4>Subcontract</h4>${r('Subcontract cost',money(c.sub))}${r('OH/P '+pctTxt(c.subPct),money(c.subOH))}${r('Total subcontract',money(c.subT),'t')}${r('<b>Item total</b>','<b>'+money(c.total)+'</b>')}</div>`:''}
   </div>
   <div class="unit-box">
@@ -1050,8 +1053,15 @@ function renderBdMob(b,c){
       <label class="chk">Super rate <input class="sel num" id="mobRate" style="width:100px;padding:4px 6px" value="${money(s.rate)}"></label></div>
     <table class="grid"><thead><tr><th style="width:70px">Code</th><th>Description</th><th class="r" style="width:90px">Hours</th><th class="r" style="width:100px">Rate</th><th class="r" style="width:110px">Labor</th><th class="r" style="width:120px">Vehicle / Equip</th><th class="r" style="width:120px">Cost</th></tr></thead>
     <tbody>${row('1010','Meetings — superintendent')}${row('1030','Lay Out Job — superintendent')}</tbody></table>
-    ${s.opId?'':'<div class="panel-b hint"><span class="tag warn">No Superintendent operation in this estimate</span> Add one on Rates &amp; Crews to price the truck.</div>'}`;
+    ${s.opId?'':'<div class="panel-b hint"><span class="tag warn">No Superintendent operation in this estimate</span> Add one on Rates &amp; Crews to price the truck.</div>'}
+    <div class="panel-h" style="background:#fff7f0;border-top:1px solid var(--line)"><b>Mobilization total</b>
+      <label class="chk">= <input class="sel num" id="mobTot" style="width:80px;padding:4px 6px" value="${num(c.mobPct*100,3)}%" title="Set to 0 to price mobilization from its lines only"> of the project total</label>
+      ${c.mobTarget!=null?`<span class="hint">${pctTxt(c.mobPct)} of ${money(c.mobOthers+c.mobTarget)} = <b>${money(c.mobTarget)}</b></span><span class="spacer"></span>
+      <span class="hint">Superintendent &amp; lines (with OH/P) ${money(c.built)}</span>
+      <span class="tag ${c.mobPlug<0?'warn':'ok'}" title="Added as 1020 Misc Mob Fees so the item hits the target">1020 balance ${money(c.mobPlug)}</span>`:'<span class="hint">Off — priced from its lines</span>'}</div>
+    ${c.mobPlug<0?'<div class="panel-b hint" style="padding:6px 16px"><span class="tag warn">Over target</span> The superintendent time and mob lines already cost more than the target, so 1020 is negative. Raise the % or lower the superintendent %.</div>':''}`;
   $('#mobPct').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null) return flash(e.target,false); await saveJob({mob_pct:v/100}); renderBdEquip(); renderBdSum(); refreshBiList(); refreshTotals(); };
+  $('#mobTot').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null||v<0||v>=100) return flash(e.target,false); await saveJob({mob_total_pct:v/100}); renderBd(); refreshBiList(); refreshTotals(); };
   $('#mobRate').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null) return flash(e.target,false); await saveJob({super_rate:v}); renderBdEquip(); renderBdSum(); refreshBiList(); refreshTotals(); };
 }
 function codeBreakdown(b,c){
@@ -1060,6 +1070,7 @@ function codeBreakdown(b,c){
   linesOf(b.id).forEach(l=>{ const tq=lineTQ(l,q), h=tq*Number(l.labor_hours||0), x=tq*Number(l.unit_price||0); add(l.cost_code, l.is_sub?0:x, h, h*J.labor_rate, l.operation_id); if(l.is_sub) map[l.cost_code||'—'].sub+=x; });
   if(c.sup && c.sup.hrs){ ['1010','1030'].forEach(k=>add(k,0,c.sup.each,c.sup.each*c.sup.rate,c.sup.opId)); }
   if(c.mhHrs) add('MH',0,c.mhHrs,c.mhHrs*J.labor_rate,null);
+  if(c.mobPlug) add('1020', c.mobPlug/(1+Number(J.tax_rate||0))/(1+Number(J.material_markup||0)), 0, 0, null);
   c.ops.forEach(o=>{ if(o.extra && o.cost){ add('—',0,0,0,null); map['—'].eq+=o.cost; } });
   c.ops.forEach(o=>{ if(o.extra||!o.cost||!o.hrs) return; const oc=opCode[o.id]||{}; Object.keys(oc).forEach(k=>{ map[k].eq += o.cost*oc[k]/o.hrs; }); });
   return Object.values(map).sort((a,b)=>numCmp(a.code,b.code));
@@ -1217,7 +1228,7 @@ function renderJobRates(){
       ${pf('material_markup','OH/P on Material')}${pf('tax_rate','Sales Tax on Material')}
       <div class="fld"><label>Labor Rate ($/man-hr)</label><input class="num" data-jr="labor_rate" data-money="1" value="${money(J.labor_rate)}"></div>
       <div class="fld"><label>Superintendent Rate ($/hr)</label><input class="num" data-jr="super_rate" data-money="1" value="${money(J.super_rate ?? J.labor_rate)}"></div>
-      ${pf('mob_pct','Superintendent Hrs (% of labor hrs)')}${pf('mh_pct','Material Handling (% of crew labor hrs)')}
+      ${pf('mob_pct','Superintendent Hrs (% of labor hrs)')}${pf('mob_total_pct','Mobilization Total (% of project, 0 = off)')}${pf('mh_pct','Material Handling (% of crew labor hrs)')}
       ${pf('labor_markup','OH/P on Labor')}${pf('equipment_markup','OH/P on Equipment')}${pf('sub_markup','OH/P on Subcontractors (no tax)')}
       <div class="fld"><label>Round Unit Prices</label><select data-jr="round_mode">${ROUND_MODES.map(([v,l])=>`<option value="${v}" ${v===J.round_mode?'selected':''}>${l}</option>`).join('')}</select></div>
       <div class="fld full"><label>Internal Notes</label><textarea data-jr="notes">${esc(J.notes)}</textarea></div>
@@ -1546,7 +1557,7 @@ function qbData(){
     if(mh && lr.length){ const th=lr.reduce((s,r)=>s+r.hrs,0)||1; lr.forEach(r=>{ const sh=th?r.hrs/th:1/lr.length; r.lab+=mh.lab*sh; r.hrs+=mh.hrs*sh; }); mh.lab=0; mh.hrs=0; }
     const L=[]; let eq=0;
     rows.forEach(r=>{ const code=r.code==='—'?'':r.code, nm=codeLabel(r.code)||code;
-      if(r.mat>0){ const cost=r.mat*(1+Number(J.tax_rate||0)); L.push({item:code?`${code}:${code}M`:'Material', desc:(nm?nm+' - ':'')+'Material', cost, tot:cost*(1+Number(J.material_markup||0))}); }
+      if(r.mat>0){ const cost=r.mat*(1+Number(J.tax_rate||0)); L.push({item:code==='1020'?'1020':code?`${code}:${code}M`:'Material', desc:code==='1020'?(nm||'Misc Mob Fees'):(nm?nm+' - ':'')+'Material', cost, tot:cost*(1+Number(J.material_markup||0))}); }
       if(r.lab>0){ L.push({item:code||'Labor', desc:(nm?nm+' - ':'')+'Labor', cost:r.lab, tot:r.lab*(1+Number(J.labor_markup||0))}); }
       if(r.sub>0){ L.push({item:code?`${code}:${code}S`:'Subcontract', desc:(nm?nm+' - ':'')+'Subcontract', cost:r.sub, tot:r.sub*(1+c.subPct)}); }
       eq+=r.eq; });
@@ -1664,7 +1675,8 @@ function exportBidSheets(){
     c.ops.forEach(o=>o.equip.forEach(e=>a.push(['',`${e.name} (${o.name})`,Number(e.qty||1),e.hrsE,'',Number(e.rate),e.cost])));
     a.push(['','TOTAL','','','','',c.eq],['','OVER HEAD/PROFIT',J.equipment_markup,'','','',c.eqOH],['','TOTAL EQUIPMENT','','','','',c.eqT],[]);
     if(c.sub) a.push(['','SUBCONTRACT','','','',c.sub],['','OVER HEAD/PROFIT',c.subPct,'','',c.subOH],['','TOTAL SUBCONTRACT','','','',c.subT],[]);
-    a.push(['','TOTAL MATERIAL','','','',c.matT],['','TOTAL LABOR','','','',c.labT],['','TOTAL EQUIPMENT','','','',c.eqT],...(c.sub?[['','TOTAL SUBCONTRACT','','','',c.subT]]:[]),['','TOTAL','','','',c.total],['','UNIT PRICE',Number(b.qty),'','',c.unit]);
+    if(c.mobTarget!=null) a.push(['1020',`MISC MOB FEES — BALANCE TO ${num(c.mobPct*100,3)}% OF PROJECT`,'','','',c.mobPlug],[]);
+    a.push(['','TOTAL MATERIAL','','','',c.matT],['','TOTAL LABOR','','','',c.labT],['','TOTAL EQUIPMENT','','','',c.eqT],...(c.sub?[['','TOTAL SUBCONTRACT','','','',c.subT]]:[]),...(c.mobTarget!=null?[['','MOB BALANCE (1020)','','','',c.mobPlug]]:[]),['','TOTAL','','','',c.total],['','UNIT PRICE',Number(b.qty),'','',c.unit]);
     const w=XLSX.utils.aoa_to_sheet(a); w['!cols']=[{wch:10},{wch:44},{wch:11},{wch:8},{wch:12},{wch:14},{wch:12},{wch:11},{wch:20},{wch:12}];
     fmtCols(w,['E','F','G'],'$#,##0.00',4,['G']);
     let nm=String(b.item_no||('Item '+(ix+1))).replace(/[\[\]:*?\/\\]/g,'-').slice(0,28)||('Item '+(ix+1)); let k=nm, n=2; while(used.has(k)) k=nm.slice(0,26)+' '+(n++); used.add(k);
