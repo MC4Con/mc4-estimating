@@ -243,7 +243,7 @@ tr.item-ready td{background:#f3fbf5}
     <button data-v="reports">Price History</button>
     <button data-v="io">Import / Export</button>
   </nav>
-  <div class="who"><button class="upd-pill" id="updPill" title="A new version is available">↻ Update available</button><span id="whoEmail"></span><button id="reloadBtn" title="Reload the app and your data">↻ Refresh</button><button id="signOut">Sign out</button></div>
+  <div class="who"><button class="upd-pill" id="updPill" title="A new version is available">↻ Update available</button><button id="whoEmail" title="Your account – change your password"></button><button id="usersBtn" style="display:none" title="Add and manage who can sign in">👥 Users</button><button id="reloadBtn" title="Reload the app and your data">↻ Refresh</button><button id="signOut">Sign out</button></div>
 </header>
 
 <main>
@@ -461,9 +461,66 @@ $('#loginForm').addEventListener('submit', async e=>{
 });
 $('#signOut').onclick = ()=> sb.auth.signOut();
 sb.auth.onAuthStateChange((_ev, session)=>{
-  if(session){ $('#login').style.display='none'; $('#app').style.display='block'; $('#whoEmail').textContent=session.user.email; S.user=session.user.email; if(!S.loaded){ S.loaded=true; loadAll(); } }
+  if(session){ $('#login').style.display='none'; $('#app').style.display='block'; $('#whoEmail').textContent='👤 '+session.user.email.split('@')[0]; $('#whoEmail').title=session.user.email+' – click to change your password'; S.user=session.user.email; S.uid=session.user.id; checkAdmin(); if(!S.loaded){ S.loaded=true; loadAll(); } }
   else { $('#login').style.display='flex'; $('#app').style.display='none'; S.loaded=false; }
 });
+
+/* ================= USERS / ACCOUNT ================= */
+async function checkAdmin(){ const {data}=await sb.from('app_users').select('role').eq('user_id',S.uid).maybeSingle(); S.isAdmin=data?.role==='admin'; $('#usersBtn').style.display=S.isAdmin?'':'none'; }
+async function userApi(body){ const {data,error}=await sb.functions.invoke('admin-users',{body});
+  if(error){ let m=error.message; try{ const j=await error.context.json(); m=j.error||m; }catch(_){} toast(m,true); return null; }
+  if(data?.error){ toast(data.error,true); return null; } return data; }
+const genPass=()=>{ const c='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'; const a=new Uint32Array(10); crypto.getRandomValues(a); return 'Mc4-'+[...a].map(x=>c[x%c.length]).join(''); };
+$('#whoEmail').onclick=()=>{
+  modal(`<div class="modal-h"><h3>Your Account</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b"><div class="hint" style="margin-bottom:12px">Signed in as <b>${esc(S.user)}</b></div>
+      <div class="form"><div class="fld"><label>New password</label><input id="pw1" type="password" autocomplete="new-password"></div><div class="fld"><label>Confirm new password</label><input id="pw2" type="password" autocomplete="new-password"></div></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn" id="pwSave">Change Password</button></div></div>`);
+  $('#pwSave').onclick=async ()=>{ const a=$('#pw1').value, b=$('#pw2').value; if(a.length<8) return toast('Use at least 8 characters',true); if(a!==b) return toast('The two passwords don\'t match',true);
+    const {error}=await sb.auth.updateUser({password:a}); if(error) return toast(error.message,true); closeModal(); toast('Password changed'); };
+};
+$('#usersBtn').onclick=()=>openUsers();
+async function openUsers(){
+  modal(`<div class="modal-h"><h3>Users</h3><span class="hint" style="margin-left:10px">People who can sign in to MC4 Estimating</span><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b">
+      <div class="card" style="padding:14px;margin-bottom:14px;background:#f8fafc"><b>Add a user</b>
+        <div class="form" style="margin-top:10px;grid-template-columns:1fr 1.3fr 1fr 120px">
+          <div class="fld"><label>Name</label><input id="nuName" placeholder="First Last"></div>
+          <div class="fld"><label>Email</label><input id="nuEmail" type="email" placeholder="name@mc4nv.com"></div>
+          <div class="fld"><label>Temporary password</label><div style="display:flex;gap:6px"><input id="nuPass" class="mono" value="${genPass()}" style="flex:1;min-width:0"><button class="btn sm sec" id="nuGen" title="Make a new random password">↻</button></div></div>
+          <div class="fld"><label>Access</label><select id="nuRole"><option value="user">User</option><option value="admin">Admin</option></select></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px"><span class="hint">Admins can add and remove users. They can change the password after signing in by clicking their email at the top.</span><span class="spacer"></span><button class="btn" id="nuGo">+ Add User</button></div>
+        <div id="nuDone"></div>
+      </div>
+      <div id="uList"><div class="empty">Loading…</div></div>
+    </div>`, true);
+  $('#nuGen').onclick=()=>{ $('#nuPass').value=genPass(); };
+  $('#nuGo').onclick=async ()=>{ const name=$('#nuName').value.trim(), email=$('#nuEmail').value.trim(), password=$('#nuPass').value.trim(), role=$('#nuRole').value;
+    if(!email || !email.includes('@')) return toast('Enter an email address',true);
+    $('#nuGo').disabled=true; const r=await userApi({action:'create',name,email,password,role}); $('#nuGo').disabled=false; if(!r) return;
+    const msg=`You've been added to MC4 Estimating.\nSign in at: ${location.origin}\nEmail: ${email}\nTemporary password: ${password}\nAfter you sign in, click your email at the top right to set your own password.`;
+    $('#nuDone').innerHTML=`<div class="card" style="margin-top:12px;padding:12px;border-color:#86efac;background:#f0fdf4"><b>✔ ${esc(name||email)} can sign in now.</b> Send them these details:<pre id="nuMsg" style="white-space:pre-wrap;margin:8px 0;font-size:12.5px">${esc(msg)}</pre><button class="btn sm sec" id="nuCopy">Copy</button></div>`;
+    $('#nuCopy').onclick=()=>{ navigator.clipboard.writeText(msg).then(()=>toast('Copied')); };
+    $('#nuName').value=''; $('#nuEmail').value=''; $('#nuPass').value=genPass(); loadUsers(); };
+  loadUsers();
+}
+async function loadUsers(){
+  const r=await userApi({action:'list'}); if(!r){ $('#uList').innerHTML='<div class="empty">Could not load users</div>'; return; }
+  const us=r.users.sort((a,b)=>(a.name||a.email).localeCompare(b.name||b.email));
+  $('#uList').innerHTML=`<table class="grid"><thead><tr><th>Name</th><th>Email</th><th style="width:120px">Access</th><th style="width:150px">Last sign-in</th><th style="width:230px"></th></tr></thead><tbody>
+    ${us.map(u=>`<tr data-id="${u.id}" data-email="${esc(u.email)}"><td><input class="sel" style="width:100%" data-f="name" value="${esc(u.name)}" placeholder="—"></td><td class="pad">${esc(u.email)}${u.id===S.uid?' <span class="tag">you</span>':''}</td>
+      <td><select class="sel" data-f="role"><option value="user" ${u.role!=='admin'?'selected':''}>User</option><option value="admin" ${u.role==='admin'?'selected':''}>Admin</option></select></td>
+      <td class="pad hint">${u.last_sign_in_at?new Date(u.last_sign_in_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'Never'}</td>
+      <td class="pad" style="white-space:nowrap"><button class="btn sm sec" data-act="pw">Reset password</button>${u.id===S.uid?'':' <button class="btn sm danger" data-act="del">Remove</button>'}</td></tr>`).join('')}</tbody></table>`;
+  $('#uList').onchange=async e=>{ const tr=e.target.closest('tr'); const f=e.target.dataset.f; if(!f) return;
+    const ok=await userApi({action:'update',id:tr.dataset.id,[f]:e.target.value.trim()}); flash(e.target,!!ok); if(!ok) loadUsers(); };
+  $('#uList').onclick=async e=>{ const bt=e.target.closest('[data-act]'); if(!bt) return; const tr=bt.closest('tr'), em=tr.dataset.email;
+    if(bt.dataset.act==='pw'){ const pw=genPass(); if(!confirm(`Reset the password for ${em}?\n\nNew temporary password:\n${pw}\n\nIt will be copied so you can send it to them.`)) return;
+      if(await userApi({action:'update',id:tr.dataset.id,password:pw})){ try{ await navigator.clipboard.writeText(pw); }catch(_){} toast('Password reset and copied: '+pw); } }
+    if(bt.dataset.act==='del'){ if(!confirm(`Remove ${em}? They will no longer be able to sign in. Their bids stay in the app.`)) return;
+      if(await userApi({action:'delete',id:tr.dataset.id})){ toast('Removed '+em); loadUsers(); } } };
+}
 
 /* ================= LOAD ================= */
 async function loadAll(){
@@ -859,7 +916,7 @@ function renderBd(){
     <div id="bdMob"></div>
     <div class="panel-h"><b>${b.is_mob?'1020 Misc Mob Fees &amp; Other Lines':'Material &amp; Labor'}</b><span class="hint">Qty is <span class="mode per">per ${esc(b.unit)}</span> (scales with the bid qty) or <span class="mode">total</span> (fixed, e.g. a quote).</span><span class="spacer"></span>
       <label class="chk" title="Adds superintendent hours (1010/1030) based on the project's labor hours"><input type="checkbox" id="bdIsMob" ${b.is_mob?'checked':''}> Mobilization item</label>
-      <button class="btn sm" id="bdAsm">+ From Assembly</button><button class="btn sm sec" id="bdCat">+ Catalog Items</button><button class="btn sm sec" id="bdBlank">+ Blank Line</button></div>
+      <button class="btn sm" id="bdAsm">+ From Assembly</button><button class="btn sm sec" id="bdCat">+ Catalog Items</button><button class="btn sm sec" id="bdBlank">+ Blank Line</button><button class="btn sm sec" id="bdSaveAsm" title="Save this bid item's lines as a reusable assembly" data-keep>⤓ Save as Assembly</button></div>
     <div style="overflow:auto"><table class="grid" id="blTable"><thead><tr>
       <th style="min-width:220px">Description</th><th style="width:120px">Cost Code</th><th style="width:150px">Operation</th>
       <th class="r" style="width:90px">Qty</th><th style="width:70px"></th><th class="r" style="width:90px">Total Qty</th><th style="width:60px">Unit</th>
@@ -895,6 +952,7 @@ function renderBd(){
     if(btn.dataset.act==='sub'){ await saveBL(lid,{is_sub:!l.is_sub}); renderBd(); refreshBiList(); refreshTotals(); return; }
     if(btn.dataset.act==='rm'){ if(await dbErr(await sb.from('bid_lines').delete().eq('id',lid),'Delete')) return; S.bls=S.bls.filter(x=>x.id!==lid); renderBd(); refreshBiList(); refreshTotals(); }
   };
+  $('#bdSaveAsm').onclick=()=>saveAsAssembly(b);
   $('#bdAsm').onclick=()=>pickAssembly(b); $('#bdCat').onclick=()=>pickCatalog(b);
   $('#bdBlank').onclick=async ()=>{ await addLines(b,[{description:'New line', qty:1, qty_mode:'per', unit:'ea', unit_price:0, labor_hours:0}]); const last=linesOf(b.id).pop(); const inp=document.querySelector(`#blTable tr[data-lid="${last.id}"] [data-f="description"]`); if(inp){ inp.focus(); inp.select(); } };
   renderBdEquip(); renderBdSum();
@@ -1017,6 +1075,67 @@ function renderBdCodes(b,c){
 async function ensureJobOps(opIds){
   const missing=[...new Set(opIds.filter(id=>id && !jobOp(id)))].map(id=>S.ops.find(o=>o.id===id)).filter(Boolean);
   if(!missing.length) return; await saveJob({ops:[...S.job.ops, ...missing.map(snapshotOp)]});
+}
+function saveAsAssembly(b){
+  const ls=linesOf(b.id).slice().sort((x,y)=>(x.sort||0)-(y.sort||0));
+  if(!ls.length) return toast('Add some lines to this bid item first',true);
+  const bq=Number(b.qty||0);
+  const conv=ls.map(l=>{ const it=l.item_id?itemById(l.item_id):null; const tot=l.qty_mode==='total';
+    const per = !tot ? Number(l.qty||0) : (it?.default_total ? Number(l.qty||0) : (bq>0 ? Number(l.qty||0)/bq : Number(l.qty||0)));
+    return {l, it, per:Math.round(per*1e6)/1e6, custom:!it}; });
+  const nCustom=conv.filter(c=>c.custom).length;
+  const defCat = /ndot/i.test(S.job.owner||'') && asmCats().includes('NDOT') ? 'NDOT' : (S.asmCat||'MC4');
+  const ccs={}; ls.forEach(l=>{ if(l.cost_code) ccs[l.cost_code]=(ccs[l.cost_code]||0)+1; }); const cc=Object.entries(ccs).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
+  const name=[b.item_no,b.description].filter(x=>x&&String(x).trim()).join(' ').trim()||'New Assembly';
+  const existing=()=>{ const code=String(b.item_no||'').trim(), cat=$('#saCat')?.value.trim()||defCat; return code? S.assemblies.find(a=>asmCatOf(a)===cat && String(a.bid_item_codes||'').split(/[,;\s]+/).includes(code)) : null; };
+  modal(`<div class="modal-h"><h3>Save as Assembly</h3><button class="icon-btn" data-close>✕</button></div>
+    <div class="modal-b">
+      <div class="form" style="grid-template-columns:2fr 90px 1fr 1fr">
+        <div class="fld"><label>Assembly name</label><input id="saName" value="${esc(name)}"></div>
+        <div class="fld"><label>Per</label><input id="saUnit" value="${esc(b.unit||'ea')}"></div>
+        <div class="fld"><label>Catalog</label><input id="saCat" list="saCatL" value="${esc(defCat)}"><datalist id="saCatL">${asmCats().map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="fld"><label>Cost Code</label><select id="saCC">${codeOptions(cc,'—')}</select></div>
+      </div>
+      <label class="chk" style="margin:10px 0 4px"><input type="checkbox" id="saLink" ${b.item_no?'checked':''} ${b.item_no?'':'disabled'}> Link to bid item # <b>${esc(b.item_no||'—')}</b> so future bid imports build it automatically</label>
+      <div id="saExist"></div>
+      <div class="hint" style="margin:10px 0 6px">${conv.length} parts, quantities converted to <b>per 1 ${esc(b.unit||'ea')}</b>${bq?` (this bid item is ${num(bq,2)} ${esc(b.unit||'')})`:''}.${nCustom?` <span class="tag warn">${nCustom} line${nCustom>1?'s are':' is'} not in the catalog yet</span> they will be added to Items so the assembly can use ${nCustom>1?'them':'it'}.`:''}</div>
+      <div style="max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px"><table class="grid"><thead><tr><th>Part</th><th class="r" style="width:120px">Qty per ${esc(b.unit||'ea')}</th><th class="r" style="width:100px">Price</th><th class="r" style="width:90px">Labor hrs</th></tr></thead><tbody>
+        ${conv.map(c=>`<tr><td class="pad">${esc(c.l.description||'(no description)')}${c.custom?' <span class="tag warn">new item</span>':''}${c.l.is_sub?' <span class="tag sub" style="cursor:default">SUB</span>':''}${c.l.qty_mode==='total'&&!c.it?.default_total?' <span class="hint">(was a total qty)</span>':''}</td><td class="r pad num">${num(c.per,4)}</td><td class="r pad num">${money(c.l.unit_price)}</td><td class="r pad num">${num(c.l.labor_hours,4)}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn sec" data-close>Cancel</button><button class="btn" id="saGo">Save Assembly</button></div>
+    </div>`, true);
+  const drawEx=()=>{ const ex=$('#saLink').checked?existing():null;
+    $('#saExist').innerHTML = ex ? `<div class="card" style="padding:10px;margin-top:6px;background:#fffbeb;border-color:#fcd34d"><b>${esc(ex.name)}</b> is already linked to ${esc(b.item_no)} in ${esc(asmCatOf(ex))}.
+      <label class="chk" style="margin-top:6px"><input type="radio" name="saMode" value="replace" checked> Replace its parts with these lines</label>
+      <label class="chk"><input type="radio" name="saMode" value="new"> Create a separate new assembly</label></div>` : '';
+    const setName=()=>{ const rep=ex && document.querySelector('input[name=saMode]:checked')?.value==='replace'; $('#saName').value = rep ? ex.name : name; };
+    document.querySelectorAll('input[name=saMode]').forEach(r=>r.onchange=setName); setName(); };
+  $('#saLink').onchange=drawEx; $('#saCat').onchange=drawEx; drawEx();
+  $('#saGo').onclick=async ()=>{
+    $('#saGo').disabled=true;
+    try{
+      const cat=$('#saCat').value.trim()||'MC4', link=$('#saLink').checked && b.item_no;
+      const ex=link?existing():null, replace = ex && (document.querySelector('input[name=saMode]:checked')?.value==='replace');
+      // 1) custom lines -> catalog items
+      for(const c of conv.filter(c=>c.custom)){
+        const rec={description:c.l.description||'New Item', unit:c.l.unit||'ea', cost_code:c.l.cost_code||null, unit_price:Number(c.l.unit_price||0), labor_hours:Number(c.l.labor_hours||0), operation_id:c.l.operation_id||null, vendor:c.l.vendor||null, is_sub:!!c.l.is_sub, notes:'Added from bid '+(S.job.name||'')+' '+(b.item_no||'')};
+        const {data,error}=await sb.from('catalog_items').insert(rec).select().single(); if(error) throw error;
+        S.items.push(data); c.it=data;
+        await sb.from('bid_lines').update({item_id:data.id, cat_price:data.unit_price, cat_labor:data.labor_hours}).eq('id',c.l.id); Object.assign(c.l,{item_id:data.id,cat_price:data.unit_price,cat_labor:data.labor_hours});
+      }
+      // 2) assembly
+      let a;
+      const head={name:$('#saName').value.trim()||name, unit:$('#saUnit').value.trim()||'ea', cost_code:$('#saCC').value||null, catalog:cat};
+      if(replace){ const r=await sb.from('assemblies').update(head).eq('id',ex.id).select().single(); if(r.error) throw r.error; a=r.data;
+        const d=await sb.from('assembly_items').delete().eq('assembly_id',a.id); if(d.error) throw d.error; S.lines=S.lines.filter(l=>l.assembly_id!==a.id);
+        Object.assign(S.assemblies.find(x=>x.id===a.id),a); }
+      else { const r=await sb.from('assemblies').insert({...head, bid_item_codes:link?String(b.item_no):null, notes:'Created from bid '+(S.job.name||'')}).select().single(); if(r.error) throw r.error; a=r.data; S.assemblies.push(a); }
+      // 3) parts
+      const rows=conv.map((c,i)=>({assembly_id:a.id, item_id:c.it.id, qty_per:c.per||1, cost_code:c.l.cost_code||null, sort:i+1, optional:false}));
+      const r=await sb.from('assembly_items').insert(rows).select(); if(r.error) throw r.error; S.lines.push(...r.data);
+      closeModal(); renderBd(); toast(`${replace?'Updated':'Saved'} assembly “${a.name}” in ${cat}${nCustom?` (+${nCustom} new catalog item${nCustom>1?'s':''})`:''}`);
+    }catch(e){ $('#saGo').disabled=false; toast(e.message||String(e),true); }
+  };
 }
 async function addLines(b, recs){
   if(S.job?.locked) return lockedMsg();
