@@ -105,6 +105,7 @@ select.cell{padding:5px 2px}
 .icon-btn:hover{background:var(--line2);color:var(--text)}
 .qlink{font-size:12px;white-space:nowrap}
 .note-flag{color:var(--accent-d);font-size:12px;cursor:help}
+.grid tr.sel td{background:#fde8e4 !important}
 .grid tr.hl td{background:#fff3a3}
 .grid tr.hl:hover td{background:#ffec80}
 .pick-list .p.hl,.pick-list .p.hl.on{background:#fff3a3}
@@ -173,7 +174,7 @@ tr.item-ready td{background:#f3fbf5}
 .unit-box input{width:130px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;text-align:right}
 .op-row td{background:#f6f8fb;font-weight:600}
 #blTable{min-width:1320px}
-#blTable td:nth-child(7) .cell{min-width:48px}
+#blTable td:nth-child(8) .cell{min-width:48px}
 .days-in{width:90px;text-align:right;padding:5px 8px;border:1px solid var(--line);border-radius:6px}
 .days-in.ovr{border-color:#c9b2ef;background:#f7f2fe}
 .form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -444,6 +445,7 @@ function codeOptions(sel, blankLabel){
   return (blankLabel!=null?`<option value="">${esc(blankLabel)}</option>`:'') +
     S.codes.map(c=>`<option value="${esc(c.code)}" ${c.code===sel?'selected':''}>${esc(c.code)} – ${esc(c.name)}</option>`).join('');
 }
+function codeOptionsShort(sel){ return `<option value="">—</option>`+S.codes.map(c=>`<option value="${esc(c.code)}" title="${esc(c.name)}" ${c.code===sel?'selected':''}>${esc(c.code)}</option>`).join(''); }
 function opOptions(sel, blankLabel, list){
   list = list || S.ops.filter(o=>o.active||o.id===sel);
   return (blankLabel!=null?`<option value="">${esc(blankLabel)}</option>`:'') + list.map(o=>`<option value="${o.id}" ${o.id===sel?'selected':''}>${esc(o.name)}</option>`).join('');
@@ -947,13 +949,13 @@ function renderBd(){
     <div id="bdMob"></div>
     <div class="panel-h"><b>${b.is_mob?'1020 Misc Mob Fees &amp; Other Lines':'Material &amp; Labor'}</b><span class="hint">Qty is <span class="mode per">per ${esc(b.unit)}</span> (scales with the bid qty) or <span class="mode">total</span> (fixed, e.g. a quote).</span><span class="spacer"></span>
       <label class="chk" title="Adds superintendent hours (1010/1030) based on the project's labor hours"><input type="checkbox" id="bdIsMob" ${b.is_mob?'checked':''}> Mobilization item</label>
-      <button class="btn sm" id="bdAsm">+ From Assembly</button><button class="btn sm sec" id="bdCat">+ Catalog Items</button><button class="btn sm sec" id="bdBlank">+ Blank Line</button><button class="btn sm sec" id="bdSaveAsm" title="Save this bid item's lines as a reusable assembly" data-keep>⤓ Save as Assembly</button>${ls.some(l=>l.assembly_id)?'<button class="btn sm danger" id="bdRmAsm" title="Remove every line that came from an assembly">− Remove Assembly</button>':''}</div>
+      <button class="btn sm" id="bdAsm">+ From Assembly</button><button class="btn sm sec" id="bdCat">+ Catalog Items</button><button class="btn sm sec" id="bdBlank">+ Blank Line</button><button class="btn sm sec" id="bdSaveAsm" title="Save this bid item's lines as a reusable assembly" data-keep>⤓ Save as Assembly</button><button class="btn sm danger" id="bdDelSel" style="display:none">Delete selected</button></div>
     <div style="overflow:auto"><table class="grid" id="blTable"><thead><tr>
-      <th style="min-width:220px">Description</th><th style="width:120px">Cost Code</th><th style="width:150px">Operation</th>
+      <th class="c" style="width:34px"><input type="checkbox" id="blAll" title="Select all lines"></th><th style="min-width:220px">Description</th><th style="width:80px">Cost Code</th><th style="width:150px">Operation</th>
       <th class="r" style="width:90px">Qty</th><th style="width:70px"></th><th class="r" style="width:90px">Total Qty</th><th style="width:60px">Unit</th>
       <th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Material</th><th style="width:170px">Need Quote / From</th><th class="r" style="width:80px">Hrs/Unit</th><th class="r" style="width:80px">Labor Hrs</th>
       <th style="width:100px">Vendor</th><th style="width:56px"></th></tr></thead>
-      <tbody>${ls.map(l=>blRowHtml(l,b)).join('') || `<tr><td colspan="14" class="empty">No lines yet. Add from a master assembly, pick catalog items, or add a blank line.</td></tr>`}</tbody><tfoot id="blFoot">${blFootHtml(b)}</tfoot></table></div>
+      <tbody>${ls.map(l=>blRowHtml(l,b)).join('') || `<tr><td colspan="15" class="empty">No lines yet. Add from a master assembly, pick catalog items, or add a blank line.</td></tr>`}</tbody><tfoot id="blFoot">${blFootHtml(b)}</tfoot></table></div>
     <div class="panel-h" style="border-top:1px solid var(--line)"><b>Equipment by Operation</b><span class="hint">Days = labor hrs ÷ crew ÷ hrs/day. Type in a Days box to override it for this item.</span></div>
     <div id="bdEquip"></div>
     <div class="panel-h" style="border-top:1px solid var(--line)"><b>Cost by Cost Code</b><span class="hint">Before tax and markup. Equipment is split by each code's share of the operation's hours.</span></div>
@@ -988,14 +990,23 @@ function renderBd(){
   $('#bdSaveAsm').onclick=()=>saveAsAssembly(b);
   $('#bdAsm').onclick=()=>pickAssembly(b); $('#bdCat').onclick=()=>pickCatalog(b);
   $('#bdBlank').onclick=async ()=>{ await addLines(b,[{description:'New line', qty:1, qty_mode:'per', unit:'ea', unit_price:0, labor_hours:0}]); const last=linesOf(b.id).pop(); const inp=document.querySelector(`#blTable tr[data-lid="${last.id}"] [data-f="description"]`); if(inp){ inp.focus(); inp.select(); } };
-  const rmA=$('#bdRmAsm'); if(rmA) rmA.onclick=()=>removeAsmFromItem(b);
+  const selIds=()=>[...document.querySelectorAll('#blTable tbody [data-sel]:checked')].map(c=>c.closest('tr').dataset.lid);
+  const updSel=()=>{ const n=selIds().length, all=document.querySelectorAll('#blTable tbody [data-sel]').length; const bt=$('#bdDelSel'); bt.style.display=n?'':'none'; bt.textContent=`Delete selected (${n})`;
+    const a=$('#blAll'); a.checked=n>0&&n===all; a.indeterminate=n>0&&n<all; document.querySelectorAll('#blTable tbody tr[data-lid]').forEach(tr=>tr.classList.toggle('sel', !!tr.querySelector('[data-sel]:checked'))); };
+  $('#blAll').onchange=e=>{ document.querySelectorAll('#blTable tbody [data-sel]').forEach(c=>c.checked=e.target.checked); updSel(); };
+  $('#blTable tbody').addEventListener('change', e=>{ if(e.target.dataset.sel) updSel(); });
+  $('#bdDelSel').onclick=async ()=>{ const ids=selIds(); if(!ids.length) return; if(!confirm(`Delete ${ids.length} line${ids.length>1?'s':''} from this bid item?`)) return;
+    if(S.job.locked) return lockedMsg(); if(itemLocked(b)) return itemLockedMsg();
+    const r=await sb.from('bid_lines').delete().in('id',ids); if(await dbErr(r,'Delete')) return;
+    S.bls=S.bls.filter(l=>!ids.includes(l.id)); renderBd(); refreshBiList(); refreshTotals(); toast(`Deleted ${ids.length} line${ids.length>1?'s':''}`); };
   refreshVendList(); renderBdEquip(); renderBdSum();
 }
 function blRowHtml(l,b){
   const tq=lineTQ(l,b.qty); const q=safeUrl(l.quote_url); const ci=l.item_id?itemById(l.item_id):null;
   return `<tr data-lid="${l.id}" class="${(ci&&ci.highlight)||l.need_quote?'hl':''}">
+    <td class="c"><input type="checkbox" data-sel="1" title="Select to delete"></td>
     <td><input class="cell" data-f="description" value="${esc(l.description)}" title="${esc(l.source?('From: '+l.source):'')}"></td>
-    <td><select class="cell" data-f="cost_code">${codeOptions(l.cost_code,'—')}</select></td>
+    <td><select class="cell mono" data-f="cost_code" title="${esc(l.cost_code?(l.cost_code+' – '+codeName(l.cost_code)):'No cost code')}">${codeOptionsShort(l.cost_code)}</select></td>
     <td><select class="cell" data-f="operation_id" title="${l.operation_id?'':'No operation: labor only, no equipment'}">${opOptions(l.operation_id,'— (labor only)')}</select></td>
     <td><input class="cell num" data-f="qty" value="${num(l.qty,6)}"></td>
     <td><button class="mode ${l.qty_mode==='per'?'per':''}" data-act="mode" title="Switch between per-unit and total (clears the qty so you can type the new one)">${l.qty_mode==='per'?'per '+esc(b.unit):'total'}</button></td>
@@ -1013,8 +1024,8 @@ function refreshVendList(){ const v=new Set(); S.items.forEach(i=>{ if(i.vendor)
   let dl=document.getElementById('vendList'); if(!dl){ dl=document.createElement('datalist'); dl.id='vendList'; document.body.appendChild(dl); } dl.innerHTML=[...v].sort().map(x=>`<option value="${esc(x)}">`).join(''); }
 function blFootHtml(b){ const c=calcItem(b);
   const extra=[c.sup&&c.sup.hrs?`${num(c.sup.hrs,2)} superintendent`:''].filter(Boolean);
-  return `<tr><td colspan="8" class="r">Totals${c.sub?' <span class="hint" style="font-weight:400">(material / subcontract)</span>':''}</td><td class="r num">${money(c.mat)}${c.sub?'<br><span style="color:#5b21b6">'+money(c.sub)+'</span>':''}</td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs,2)}</td><td colspan="2" class="hint" style="font-weight:400">man-hours</td></tr>
-    ${extra.length?`<tr><td colspan="8" class="r hint" style="font-weight:400">+ ${extra.join(' + ')} hrs =</td><td></td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs+(c.sup?c.sup.hrs:0),2)}</td><td colspan="2" class="hint" style="font-weight:400">total man-hours</td></tr>`:''}`; }
+  return `<tr><td colspan="9" class="r">Totals${c.sub?' <span class="hint" style="font-weight:400">(material / subcontract)</span>':''}</td><td class="r num">${money(c.mat)}${c.sub?'<br><span style="color:#5b21b6">'+money(c.sub)+'</span>':''}</td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs,2)}</td><td colspan="2" class="hint" style="font-weight:400">man-hours</td></tr>
+    ${extra.length?`<tr><td colspan="9" class="r hint" style="font-weight:400">+ ${extra.join(' + ')} hrs =</td><td></td><td></td><td></td><td class="r num" style="font-size:14px">${num(c.crewHrs+(c.sup?c.sup.hrs:0),2)}</td><td colspan="2" class="hint" style="font-weight:400">total man-hours</td></tr>`:''}`; }
 function refreshBlRow(lid){ const tr=document.querySelector(`#blTable tr[data-lid="${lid}"]`); if(!tr) return; const l=S.bls.find(x=>x.id===lid), b=S.bis.find(x=>x.id===l.bid_item_id), tq=lineTQ(l,b.qty);
   { const t=tr.querySelector('[data-f=tq]'); if(t && document.activeElement!==t) t.value=num(tq,4); } tr.querySelector('[data-c=mat]').textContent=money(tq*Number(l.unit_price||0)); tr.querySelector('[data-c=hrs]').textContent=num(tq*Number(l.labor_hours||0),2); }
 function renderBdEquip(){
@@ -1119,20 +1130,6 @@ function renderBdCodes(b,c){
 async function ensureJobOps(opIds){
   const missing=[...new Set(opIds.filter(id=>id && !jobOp(id)))].map(id=>S.ops.find(o=>o.id===id)).filter(Boolean);
   if(!missing.length) return; await saveJob({ops:[...S.job.ops, ...missing.map(snapshotOp)]});
-}
-function removeAsmFromItem(b){
-  const g={}; linesOf(b.id).forEach(l=>{ if(!l.assembly_id) return; (g[l.assembly_id]=g[l.assembly_id]||[]).push(l); });
-  const ids=Object.keys(g); if(!ids.length) return toast('No assembly lines on this item',true);
-  modal(`<div class="modal-h"><h3>Remove an Assembly from ${esc(b.item_no||'')} ${esc(b.description)}</h3><button class="icon-btn" data-close>✕</button></div>
-    <div class="modal-b"><p class="hint" style="margin-top:0">Removes every line that came from that assembly on this bid item. Lines you added yourself stay.</p>
-      <div class="pick-list">${ids.map(aid=>{ const a=asmById(aid); const ls=g[aid]; const ed=ls.filter(l=>!near(l.unit_price,l.cat_price??l.unit_price)||(l.cat_qty!=null&&!near(l.qty,l.cat_qty))).length;
-        return `<div class="p" style="cursor:default"><span class="d"><b>${esc(a?a.name:'(deleted assembly)')}</b><div class="hint">${ls.length} line${ls.length>1?'s':''}${ed?` · ${ed} changed on this bid`:''}</div></span><button class="btn sm danger" data-rm="${aid}">Remove</button></div>`; }).join('')}</div></div>`);
-  document.querySelectorAll('[data-rm]').forEach(bt=>bt.onclick=async ()=>{ const aid=bt.dataset.rm; const a=asmById(aid); const ls=g[aid];
-    if(!confirm(`Remove ${ls.length} line${ls.length>1?'s':''} from ${a?a.name:'this assembly'}?`)) return;
-    if(S.job.locked) return lockedMsg(); if(itemLocked(b)) return itemLockedMsg();
-    const r=await sb.from('bid_lines').delete().in('id',ls.map(l=>l.id)); if(await dbErr(r,'Remove')) return;
-    S.bls=S.bls.filter(l=>!ls.includes(l)); const seen={...(b.asm_seen||{})}; delete seen[aid]; await saveBI(b.id,{asm_seen:seen});
-    closeModal(); renderBd(); refreshBiList(); refreshTotals(); toast(`Removed ${a?a.name:'assembly'} (${ls.length} lines)`); });
 }
 function saveAsAssembly(b){
   const ls=linesOf(b.id).slice().sort((x,y)=>(x.sort||0)-(y.sort||0));
