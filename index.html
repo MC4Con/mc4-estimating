@@ -171,7 +171,7 @@ tr.item-ready td{background:#f3fbf5}
 .sum-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--line)}
 .sum-col{padding:14px 16px;border-right:1px solid var(--line2)}
 .sum-col:last-child{border-right:0}
-.sum-col h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+.sum-col h4{margin:0 0 10px;font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text)}
 .sum-row{display:flex;justify-content:space-between;padding:3px 0;font-size:13px}
 .sum-row.t{border-top:1px solid var(--line);margin-top:4px;padding-top:6px;font-weight:600}
 .unit-box{display:flex;align-items:center;gap:20px;padding:14px 16px;background:#fff1e8;border-top:1px solid #ffd3b8;border-radius:0 0 10px 10px;flex-wrap:wrap}
@@ -1138,8 +1138,8 @@ function renderBdSum(){
   box.innerHTML = `<div class="sum-grid" ${c.sub?'style="grid-template-columns:repeat(4,minmax(0,1fr))"':''}>
     <div class="sum-col"><h4>Material</h4>${r('Material cost',money(c.mat))}${r('Tax '+pctTxt(J.tax_rate),money(c.tax))}${r('OH/P '+pctTxt(J.material_markup),money(c.matOH))}${r('Total material',money(c.matT),'t')}</div>
     <div class="sum-col"><h4>Labor</h4>${r(num(c.crewHrs,4)+' crew hrs × '+money(J.labor_rate),money(c.crewHrs*J.labor_rate))}${c.mhHrs?r(num(c.mhHrs,4)+' mat. handling hrs ('+num(c.mhPct*100,2)+'%)',money(c.mhHrs*J.labor_rate)):''}${c.sup?r(num(c.sup.hrs,4)+' super hrs × '+money(c.sup.rate),money(c.sup.cost)):''}${r('OH/P '+pctTxt(J.labor_markup),money(c.labOH))}${r('Total labor',money(c.labT),'t')}${r('Labor % of total',c.total?num(c.labT/c.total*100,1)+'%':'—')}</div>
-    <div class="sum-col"><h4>Equipment</h4>${r('Equipment',money(c.eq))}${r('OH/P '+pctTxt(J.equipment_markup),money(c.eqOH))}${r('Total equipment',money(c.eqT),'t')}${c.mobTarget!=null?r('1020 balance to reach '+pctTxt(c.mobPct),money(c.mobPlug)):''}${c.sub?'':r('<b>Item total</b>','<b>'+money(c.total)+'</b>')}</div>
-    ${c.sub?`<div class="sum-col"><h4>Subcontract</h4>${r('Subcontract cost',money(c.sub))}${r('OH/P '+pctTxt(c.subPct),money(c.subOH))}${r('Total subcontract',money(c.subT),'t')}${r('<b>Item total</b>','<b>'+money(c.total)+'</b>')}</div>`:''}
+    <div class="sum-col"><h4>Equipment</h4>${r('Equipment',money(c.eq))}${r('OH/P '+pctTxt(J.equipment_markup),money(c.eqOH))}${r('Total equipment',money(c.eqT),'t')}${c.mobTarget!=null?r('1020 balance to reach '+pctTxt(c.mobPct),money(c.mobPlug)):''}</div>
+    ${c.sub?`<div class="sum-col"><h4>Subcontract</h4>${r('Subcontract cost',money(c.sub))}${r('OH/P '+pctTxt(c.subPct),money(c.subOH))}${r('Total subcontract',money(c.subT),'t')}</div>`:''}
   </div>
   <div class="unit-box">
     <div><div class="hint">Calculated unit price</div><div class="num">${money(c.calcUnit)}</div></div>
