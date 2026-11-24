@@ -663,7 +663,7 @@ async function openJob(id, tab, askImport, baseline){
   S.job=j.data; S.job.ops=S.job.ops||[]; S.job.proposal=S.job.proposal||{}; S.bis=bi.data; S.bls=bl.data; S.jobTab=tab||'sheet'; S.biSel=S.bis[0]?.id||null;
   $('#jobsList').style.display='none'; $('#jobWs').style.display='block';
   if(baseline) await baselineJob();
-  await ensureSuperOp();
+  await ensureSuperOp(); await ensureMobLine();
   await refreshJobFromCatalog(true);
   renderJob();
   if(askImport) openBidImport();
@@ -728,12 +728,23 @@ function calcItem(bi){
   const subPct=Number(J.sub_markup ?? 0.30), subOH=sub*subPct, subT=sub+subOH;
   const built=matT+labT+eqT+subT; let total=built, mobTarget=null, mobPlug=0, mobOthers=0; const mp=Number(J.mob_total_pct||0);
   if(bi.is_mob && mp>0 && mp<1){ const nMob=S.bis.filter(x=>x.is_mob).length||1; mobOthers=S.bis.filter(x=>!x.is_mob).reduce((s,x)=>s+calcItem(x).amount,0);
-    mobTarget=Math.round(mobOthers*mp/(1-mp)/nMob*100)/100; mobPlug=mobTarget-built; total=mobTarget; }
+    mobTarget=Math.round(mobOthers*mp/(1-mp)/nMob*100)/100;
+    const al=mobAutoLine(bi);
+    if(al && !S.job.locked && !itemLocked(bi)){ const tq=lineTQ(al,q); const f = al.is_sub ? (1+subPct) : (1+Number(J.tax_rate||0))*(1+Number(J.material_markup||0));
+      const cur=tq*Number(al.unit_price||0)*f; const np=Math.round((mobTarget-(built-cur))/f/tq*10000)/10000;
+      if(!near(np, al.unit_price)){ al.unit_price=np; al._dirty=true; return calcItem(bi); } }
+    mobPlug=mobTarget-built; if(Math.abs(mobPlug)<0.005) mobPlug=0; total=mobTarget; }
   const calcUnit=q?total/q:0, rounded = mobTarget!=null ? Math.round(calcUnit*100)/100 : roundUp(calcUnit,J.round_mode||'auto');
   const manual = bi.manual_unit_price!=null && bi.manual_unit_price!=='';
   const unit = manual ? Number(bi.manual_unit_price) : rounded;
   return { q, n:ls.length, sup, crewHrs, mhHrs, mhPct, noOpHrs, backed:ls.length>0||!!(sup&&sup.hrs), mat, tax, matOH, matT, hrs, lab, labOH, labT, ops, eq, eqOH, eqT, sub, subPct, subOH, subT, built, mobTarget, mobPlug, mobOthers, mobPct:mp, total, calcUnit, rounded, manual, unit, amount:unit*q };
 }
+// The mobilization item's first 1020 line absorbs the balance to reach the mobilization %.
+function mobAutoLine(b){ if(!b || !b.is_mob || !(Number(S.job?.mob_total_pct||0)>0)) return null; return linesOf(b.id).find(l=>l.cost_code==='1020' && lineTQ(l,b.qty)>0) || null; }
+async function saveMobAuto(){ const d=S.bls.filter(l=>l._dirty); d.forEach(l=>delete l._dirty); if(d.length) await Promise.all(d.map(l=>sb.from('bid_lines').update({unit_price:l.unit_price}).eq('id',l.id))); }
+async function ensureMobLine(){ if(!S.job || S.job.locked || !(Number(S.job.mob_total_pct||0)>0)) return;
+  for(const b of S.bis.filter(x=>x.is_mob && !itemLocked(x))){ if(mobAutoLine(b)) continue;
+    await addLines(b,[{description:'Misc Mob Fees', cost_code:'1020', qty:1, qty_mode:'total', unit:'ls', unit_price:0, labor_hours:0, source:'Auto — balance to reach the mobilization %'}]); } }
 function jobTotals(){
   const t={amount:0,matT:0,labT:0,eqT:0,subT:0,hrs:0,cost:0};
   S.bis.forEach(b=>{ const c=calcItem(b); t.amount+=c.amount; t.matT+=c.matT; t.labT+=c.labT; t.eqT+=c.eqT; t.subT+=c.subT; t.hrs+=c.hrs; t.cost+=c.mat+c.tax+c.lab+c.eq+c.sub; });
@@ -744,7 +755,7 @@ function refreshTotals(){
   const t=jobTotals();
   const el=$('#jTotalV'); if(el){ el.textContent=money(t.amount); $('#jTotalS').textContent=`${num(t.hrs,0)} man-hours · ${S.bis.length} bid items`; }
   const ft=$('#bsFoot'); if(ft) ft.innerHTML=bsFootHtml(t);
-  clearTimeout(totalTimer); const job=S.job, v=Math.round(t.amount*100)/100;
+  saveMobAuto(); clearTimeout(totalTimer); const job=S.job, v=Math.round(t.amount*100)/100;
   const lj0=S.jobs.find(x=>x.id===job.id); if(lj0) lj0.total=v;
   totalTimer=setTimeout(()=>saveTotal(job,v),800); S.pendingTotal=[job,v];
 }
@@ -993,7 +1004,7 @@ function refreshBiList(){ const el=$('#biList'); if(el){ const st=el.scrollTop; 
 function renderBd(){
   const b=S.bis.find(x=>x.id===S.biSel); const box=$('#bdMain'); if(!box) return;
   if(!b){ box.innerHTML='<div class="card empty">Add bid items on the Bid Sheet tab first.</div>'; return; }
-  const ls=linesOf(b.id);
+  calcItem(b); const ls=linesOf(b.id);
   box.innerHTML = `<div class="card">
     <div class="bd-head">
       <div class="fld"><label>Bid Item</label><input data-b="item_no" class="mono" value="${esc(b.item_no)}"></div>
@@ -1018,7 +1029,7 @@ function renderBd(){
     <div id="bdCodes"></div>
     <div id="bdSum"></div>
   </div>`;
-  $('#bdIsMob').onchange=async e=>{ await saveBI(b.id,{is_mob:e.target.checked}); await ensureSuperOp(); renderBd(); refreshBiList(); refreshTotals(); };
+  $('#bdIsMob').onchange=async e=>{ await saveBI(b.id,{is_mob:e.target.checked}); await ensureSuperOp(); await ensureMobLine(); renderBd(); refreshBiList(); refreshTotals(); };
   box.querySelector('[data-st]').onchange=e=>setItemStatus(b.id, e.target.value, e.target);
   box.querySelector('.bd-head').onchange=async e=>{ const k=e.target.dataset.b; if(!k) return; let v=e.target.value.trim();
     if(k==='qty'){ v=parseNum(v); if(v==null) return flash(e.target,false); }
@@ -1079,7 +1090,7 @@ function blRowHtml(l,b){
     <td><button class="mode ${l.qty_mode==='per'?'per':''}" data-act="mode" title="Switch between per-unit and total (clears the qty so you can type the new one)">${l.qty_mode==='per'?'per '+esc(b.unit):'total'}</button></td>
     <td><input class="cell num" data-f="tq" value="${num(tq,4)}" title="Type a total and the per-unit qty is worked out for you"></td>
     <td><input class="cell" data-f="unit" list="unitList" value="${esc(l.unit)}"></td>
-    <td><input class="cell num" data-f="unit_price" value="${num(l.unit_price,4)}"></td>
+    <td>${mobAutoLine(b)===l?`<input class="cell num" data-f="unit_price" value="${num(l.unit_price,4)}" disabled title="Set automatically so mobilization totals ${num(Number(S.job.mob_total_pct)*100,3)}% of the project" style="color:#9a3412;font-weight:600">`:`<input class="cell num" data-f="unit_price" value="${num(l.unit_price,4)}">`}</td>
     <td class="r num pad" style="white-space:nowrap">${l.is_sub?'<button class="tag sub" data-act="sub" title="Subcontractor line: no sales tax, subcontractor markup. Click to make it material.">SUB</button>':'<button class="sub-off" data-act="sub" title="Mark as a subcontractor line">sub?</button>'} <span data-c="mat">${money(tq*Number(l.unit_price||0))}</span></td>
     <td style="white-space:nowrap"><input type="checkbox" data-nq="1" ${l.need_quote?'checked':''} title="Need quote — highlights the line yellow" style="vertical-align:middle">${l.need_quote?` <input class="cell" data-f="quote_vendor" list="vendList" placeholder="Quote from…" value="${esc(l.quote_vendor)}" style="width:130px;display:inline-block;background:#fff">`:''}</td>
     <td><input class="cell num" data-f="labor_hours" value="${num(l.labor_hours,4)}"></td>
@@ -1138,7 +1149,7 @@ function renderBdSum(){
   box.innerHTML = `<div class="sum-grid" ${c.sub?'style="grid-template-columns:repeat(4,minmax(0,1fr))"':''}>
     <div class="sum-col"><h4>Material</h4>${r('Material cost',money(c.mat))}${r('Tax '+pctTxt(J.tax_rate),money(c.tax))}${r('OH/P '+pctTxt(J.material_markup),money(c.matOH))}${r('Total material',money(c.matT),'t')}</div>
     <div class="sum-col"><h4>Labor</h4>${r(num(c.crewHrs,4)+' crew hrs × '+money(J.labor_rate),money(c.crewHrs*J.labor_rate))}${c.mhHrs?r(num(c.mhHrs,4)+' mat. handling hrs ('+num(c.mhPct*100,2)+'%)',money(c.mhHrs*J.labor_rate)):''}${c.sup?r(num(c.sup.hrs,4)+' super hrs × '+money(c.sup.rate),money(c.sup.cost)):''}${r('OH/P '+pctTxt(J.labor_markup),money(c.labOH))}${r('Total labor',money(c.labT),'t')}${r('Labor % of total',c.total?num(c.labT/c.total*100,1)+'%':'—')}</div>
-    <div class="sum-col"><h4>Equipment</h4>${r('Equipment',money(c.eq))}${r('OH/P '+pctTxt(J.equipment_markup),money(c.eqOH))}${r('Total equipment',money(c.eqT),'t')}${c.mobTarget!=null?r('1020 balance to reach '+pctTxt(c.mobPct),money(c.mobPlug)):''}</div>
+    <div class="sum-col"><h4>Equipment</h4>${r('Equipment',money(c.eq))}${r('OH/P '+pctTxt(J.equipment_markup),money(c.eqOH))}${r('Total equipment',money(c.eqT),'t')}</div>
     ${c.sub?`<div class="sum-col"><h4>Subcontract</h4>${r('Subcontract cost',money(c.sub))}${r('OH/P '+pctTxt(c.subPct),money(c.subOH))}${r('Total subcontract',money(c.subT),'t')}</div>`:''}
   </div>
   <div class="unit-box">
@@ -1169,10 +1180,10 @@ function renderBdMob(b,c){
       <label class="chk">= <input class="sel num" id="mobTot" style="width:80px;padding:4px 6px" value="${num(c.mobPct*100,3)}%" title="Set to 0 to price mobilization from its lines only"> of the project total</label>
       ${c.mobTarget!=null?`<span class="hint">${pctTxt(c.mobPct)} of ${money(c.mobOthers+c.mobTarget)} = <b>${money(c.mobTarget)}</b></span><span class="spacer"></span>
       <span class="hint">Superintendent &amp; lines (with OH/P) ${money(c.built)}</span>
-      <span class="tag ${c.mobPlug<0?'warn':'ok'}" title="Added as 1020 Misc Mob Fees so the item hits the target">1020 balance ${money(c.mobPlug)}</span>`:'<span class="hint">Off — priced from its lines</span>'}</div>
-    ${c.mobPlug<0?'<div class="panel-b hint" style="padding:6px 16px"><span class="tag warn">Over target</span> The superintendent time and mob lines already cost more than the target, so 1020 is negative. Raise the % or lower the superintendent %.</div>':''}`;
+      ${(()=>{ const al=mobAutoLine(b); if(!al) return `<span class="tag ${c.mobPlug<0?'warn':'ok'}">1020 balance ${money(c.mobPlug)}</span>`; const v=lineTQ(al,b.qty)*Number(al.unit_price||0); return `<span class="tag ${v<0?'warn':'ok'}" title="This is the 1020 line's cost before tax and markup">1020 line set to ${money(v)}</span>`; })()}`:'<span class="hint">Off — priced from its lines</span>'}</div>
+    ${(c.mobPlug<0 || (mobAutoLine(b) && Number(mobAutoLine(b).unit_price)<0))?'<div class="panel-b hint" style="padding:6px 16px"><span class="tag warn">Over target</span> The superintendent time and mob lines already cost more than the target, so 1020 is negative. Raise the % or lower the superintendent %.</div>':''}`;
   $('#mobPct').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null) return flash(e.target,false); await saveJob({mob_pct:v/100}); renderBdEquip(); renderBdSum(); refreshBiList(); refreshTotals(); };
-  $('#mobTot').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null||v<0||v>=100) return flash(e.target,false); await saveJob({mob_total_pct:v/100}); renderBd(); refreshBiList(); refreshTotals(); };
+  $('#mobTot').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null||v<0||v>=100) return flash(e.target,false); await saveJob({mob_total_pct:v/100}); await ensureMobLine(); renderBd(); refreshBiList(); refreshTotals(); };
   $('#mobRate').onchange=async e=>{ const v=parseNum(e.target.value); if(v==null) return flash(e.target,false); await saveJob({super_rate:v}); renderBdEquip(); renderBdSum(); refreshBiList(); refreshTotals(); };
 }
 function codeBreakdown(b,c){
@@ -1581,7 +1592,7 @@ async function applyBidImport(){
         lines.push({id:uuid(), bid_item_id:b.id, sort:++so, ...lineFromItem(p.i, Math.round(p.qty*1e6)/1e6, 'per', [a.name,...p.via].join(' › '), p.cost_code, {assembly_id:a.id, assembly_item_id:p.row.id, asm_mult:1, cat_qty:Math.round(p.qty*1e6)/1e6})}); }); if(la.length) built++; }); });
     for(let i=0;i<lines.length;i+=500){ if(await dbErr(await sb.from('bid_lines').insert(lines.slice(i,i+500)),'Build')) break; }
     S.bls.push(...lines); await ensureJobOps(lines.map(l=>l.operation_id)); }
-  await ensureSuperOp(); closeModal(); S.jobTab='sheet'; renderJob(); refreshTotals();
+  await ensureSuperOp(); await ensureMobLine(); closeModal(); S.jobTab='sheet'; renderJob(); refreshTotals();
   toast(`Imported ${recs.length} bid items${auto?` · ${built} built from assemblies`:''}`);
 }
 
