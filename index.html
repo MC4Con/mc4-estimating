@@ -153,6 +153,11 @@ tr.item-ready td{background:#f3fbf5}
 .job-meta input,.job-meta select{border:1px solid transparent;background:transparent;padding:4px 6px;border-radius:6px;width:150px}
 .job-meta input:hover,.job-meta select:hover{border-color:var(--line)}
 .job-meta input:focus{outline:none;border-color:var(--accent);background:var(--edit)}
+.rev-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-2px 0 12px}
+.rev-bar .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:600;margin-right:4px}
+.rev-bar .rv{border:1px solid var(--line);background:#fff;border-radius:16px;padding:4px 12px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;line-height:1.25;text-align:left}
+.rev-bar .rv small{display:block;font-weight:500;font-size:10.5px;opacity:.8}
+.rev-bar .rv.on{background:#111;color:#fff;border-color:#111}
 .job-total{background:var(--navy);color:#fff;border-radius:10px;padding:12px 18px;text-align:right;min-width:220px}
 .job-total .l{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#aaa}
 .job-total .v{font-size:24px;font-weight:700;color:var(--accent)}
@@ -174,6 +179,18 @@ tr.item-ready td{background:#f3fbf5}
 .unit-box input{width:130px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;text-align:right}
 .op-row td{background:#f6f8fb;font-weight:600}
 #blTable{min-width:1320px}
+#blTable th:nth-child(1),#blTable td:nth-child(1){position:sticky;left:0;z-index:1;width:52px;min-width:52px}
+#blTable th:nth-child(2),#blTable td:nth-child(2){position:sticky;left:52px;z-index:1;box-shadow:inset -1px 0 0 var(--line), 4px 0 6px -4px rgba(0,0,0,.12)}
+#blTable thead th:nth-child(-n+2){z-index:4}
+#blTable tbody td:nth-child(-n+2){background:#fff}
+#blTable tbody tr:hover td:nth-child(-n+2){background:var(--row-hover)}
+#blTable tbody tr.hl td:nth-child(-n+2){background:#fff3a3}
+#blTable tbody tr.sel td:nth-child(-n+2){background:#fde8e4}
+#blTable .drag{cursor:grab;color:#a0a8b4;padding:0 3px;font-size:13px;user-select:none;vertical-align:middle;letter-spacing:-2px}
+#blTable .drag:hover{color:var(--text)}
+#blTable tr.dragging td{opacity:.45}
+#blTable tr.drop-above td{box-shadow:inset 0 2px 0 var(--accent)}
+#blTable tr.drop-below td{box-shadow:inset 0 -2px 0 var(--accent)}
 #blTable td:nth-child(8) .cell{min-width:48px}
 .days-in{width:90px;text-align:right;padding:5px 8px;border:1px solid var(--line);border-radius:6px}
 .days-in.ovr{border-color:#c9b2ef;background:#f7f2fe}
@@ -536,7 +553,7 @@ async function loadAll(){
     sb.from('operations').select('*').order('sort'),
     sb.from('operation_equipment').select('*'),
     sb.from('company_profile').select('*').eq('id',1).single(),
-    sb.from('jobs').select('id,job_number,name,owner,location,bid_date,status,revision,total,updated_at,locked').order('updated_at',{ascending:false}),
+    sb.from('jobs').select('id,job_number,name,owner,location,bid_date,status,revision,total,updated_at,locked,rev_group,rev_no').order('updated_at',{ascending:false}),
   ]);
   const err = r.find(x=>x.error && x.error.code!=='PGRST116');
   if(err){ toast('Load failed: '+err.error.message, true); return; }
@@ -563,13 +580,14 @@ $('#nav').addEventListener('click', e=>{
    ===================================================================== */
 function renderJobs(){
   const q=$('#jSearch').value.trim().toLowerCase(), st=$('#jStatus').value;
-  const list=S.jobs.filter(j=>(!st||j.status===st)&&(!q||[j.name,j.job_number,j.owner,j.location].some(v=>(v||'').toLowerCase().includes(q))));
+  const latest=new Map(); S.jobs.forEach(j=>{ const g=j.rev_group||j.id, c=latest.get(g); if(!c || Number(j.rev_no||0)>Number(c.rev_no||0)) latest.set(g,j); });
+  const list=[...latest.values()].sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||''))).filter(j=>(!st||j.status===st)&&(!q||[j.name,j.job_number,j.owner,j.location].some(v=>(v||'').toLowerCase().includes(q))));
   $('#jTable tbody').innerHTML = list.map(j=>`<tr data-id="${j.id}" style="cursor:pointer">
     <td class="pad mono">${esc(j.job_number)}</td><td class="pad"><b>${esc(j.name)}</b>${j.location?`<div class="hint">${esc(j.location)}</div>`:''}</td><td class="pad">${esc(j.owner)}</td>
-    <td class="pad">${j.bid_date?new Date(j.bid_date+'T12:00').toLocaleDateString('en-US'):''}</td><td class="pad">${esc(j.revision)}</td>
+    <td class="pad">${j.bid_date?new Date(j.bid_date+'T12:00').toLocaleDateString('en-US'):''}</td><td class="pad">${(()=>{ const n=revsOf(j).length; return n>1?`<span class="tag same" title="${n} versions — open it to switch between them">${esc(revLabel(j))}</span>`:esc(j.revision||''); })()}</td>
     <td class="pad"><span class="tag ${j.status==='Won'?'ok':j.status==='Lost'?'warn':j.status==='Submitted'?'new':'same'}">${esc(j.status)}</span>${j.locked?' <span title="Locked">🔒</span>':''}</td>
     <td class="r pad num">${money(j.total)}</td><td class="pad hint">${fdate(j.updated_at)}</td>
-    <td class="pad" style="white-space:nowrap"><button class="icon-btn" data-act="dup" title="Copy as new revision">⧉</button><button class="icon-btn" data-act="del" title="Delete">✕</button></td></tr>`).join('')
+    <td class="pad" style="white-space:nowrap"><button class="icon-btn" data-act="dup" title="Create revision">⧉</button><button class="icon-btn" data-act="del" title="Delete">✕</button></td></tr>`).join('')
     || `<tr><td colspan="9" class="empty">No estimates yet. Click “+ New Estimate” to start one.</td></tr>`;
 }
 $('#jSearch').addEventListener('input',renderJobs); $('#jStatus').addEventListener('change',renderJobs);
@@ -577,20 +595,21 @@ $('#jTable tbody').addEventListener('click', async e=>{
   const tr=e.target.closest('tr[data-id]'); if(!tr) return; const id=tr.dataset.id;
   if(e.target.closest('[data-act="del"]')){ const j=S.jobs.find(x=>x.id===id); if(!confirm(`Delete estimate “${j.name}” and all its bid items?`)) return;
     if(await dbErr(await sb.from('jobs').delete().eq('id',id),'Delete')) return; S.jobs=S.jobs.filter(x=>x.id!==id); renderJobs(); return; }
-  if(e.target.closest('[data-act="dup"]')) return duplicateJob(id);
+  if(e.target.closest('[data-act="dup"]')) return createRevision(id);
   openJob(id);
 });
 $('#jNew').onclick = ()=>{
   modal(`<div class="modal-h"><h3>New Estimate</h3><button class="icon-btn" data-close>✕</button></div>
     <div class="modal-b"><div class="form">
       <div class="fld full"><label>Project Name</label><input id="njName" placeholder="e.g. 215 NW Trail Lighting"></div>
-      <div class="fld"><label>Job / Bid #</label><input id="njNum"></div>
+      <div class="fld"><label>Job / Bid # <span class="hint" style="text-transform:none;letter-spacing:0">(next number filled in)</span></label><input id="njNum"></div>
       <div class="fld"><label>Bid Date</label><input id="njDate" type="date"></div>
       <div class="fld"><label>Owner / Client</label><input id="njOwner" placeholder="e.g. NDOT"></div>
       <div class="fld"><label>Location</label><input id="njLoc"></div>
     </div><p class="hint" style="margin-bottom:0">Rates, markups, crews and equipment are copied from the catalog defaults. You can change them for this job afterwards.</p></div>
     <div class="modal-f"><button class="btn sec" data-close>Cancel</button><button class="btn" id="njGo">Create</button></div>`);
   $('#njName').focus();
+  sb.rpc('next_bid_no').then(({data})=>{ const el=$('#njNum'); if(data && el && !el.value) { el.value=data; el.placeholder=data; } });
   $('#njGo').onclick = async ()=>{
     const name=$('#njName').value.trim(); if(!name) return toast('Project name is required',true);
     const rec={ name, job_number:$('#njNum').value.trim()||null, bid_date:$('#njDate').value||null, owner:$('#njOwner').value.trim()||null, location:$('#njLoc').value.trim()||null,
@@ -605,37 +624,51 @@ function snapshotOp(o){ return { id:o.id, name:o.name, crew:Number(o.crew_size),
   equip:S.opEq.filter(x=>x.operation_id===o.id).map(x=>{ const e=S.equipment.find(e=>e.id===x.equipment_id)||{}; return {equipment_id:x.equipment_id, name:e.name||'?', qty:Number(x.qty), rate:Number(e.rate_per_hour||0)}; }) }; }
 function snapshotOps(){ return S.ops.filter(o=>o.active).map(snapshotOp); }
 
-async function duplicateJob(id){
+const revLabel = j => Number(j.rev_no||0) ? 'Rev '+j.rev_no : 'Original';
+const revsOf = j => S.jobs.filter(x=>(x.rev_group||x.id)===(j.rev_group||j.id)).sort((a,b)=>(a.rev_no||0)-(b.rev_no||0));
+async function createRevision(id){
+  const src0=S.jobs.find(x=>x.id===id) || S.job; const grp=revsOf(src0); const next=Math.max(0,...grp.map(x=>Number(x.rev_no||0)))+1;
+  if(!confirm(`Create Rev ${next} of “${src0.name}”?\n\nEverything is copied into Rev ${next} for you to change. ${revLabel(src0)} is locked so it stays exactly as it was.`)) return;
+  await flushTotal(); const nid=await duplicateJob(id, next); if(!nid) return;
+  if(!src0.locked){ await sb.from('jobs').update({locked:true, catalog_frozen:true}).eq('id',id); src0.locked=true; const lj=S.jobs.find(x=>x.id===id); if(lj) lj.locked=true; }
+  await openJob(nid, 'sheet', false, true); toast(`Rev ${next} created — make your changes here`);
+}
+async function duplicateJob(id, revNo){
   const r=await sb.from('jobs').select('*').eq('id',id).single(); if(await dbErr(r,'Copy')) return;
   const src=r.data; const bi=await sb.from('bid_items').select('*').eq('job_id',id); if(await dbErr(bi,'Copy')) return;
   const ids=bi.data.map(b=>b.id); let bl={data:[]}; if(ids.length){ bl=await sb.from('bid_lines').select('*').in('bid_item_id',ids); if(await dbErr(bl,'Copy')) return; }
-  const nextRev = (()=>{ const m=String(src.revision||'R0').match(/(\d+)/); return 'R'+((m?+m[1]:0)+1); })();
+  if(revNo==null){ const g=S.jobs.filter(x=>(x.rev_group||x.id)===(src.rev_group||src.id)); revNo=Math.max(Number(src.rev_no||0),...g.map(x=>Number(x.rev_no||0)))+1; }
+  const nextRev='Rev '+revNo;
   const {id:_, created_at, updated_at, ...rest}=src;
-  const nj={...rest, id:uuid(), revision:nextRev, status:'Draft', locked:false, created_by:S.user};
+  const prop={...(src.proposal||{})}; delete prop.date; if(prop.number) prop.number=String(prop.number).replace(/\s*(R|Rev)\s*\d+\s*$/i,'').trim()+' '+nextRev;
+  const nj={...rest, id:uuid(), rev_group:src.rev_group||src.id, rev_no:revNo, revision:nextRev, proposal:prop, status:'Draft', locked:false, catalog_frozen:true, created_by:S.user};
   if(await dbErr(await sb.from('jobs').insert(nj),'Copy')) return;
   const map={}; const nbi=bi.data.map(b=>{ const n={...b, id:uuid(), job_id:nj.id}; delete n.created_at; map[b.id]=n.id; return n; });
   if(nbi.length && await dbErr(await sb.from('bid_items').insert(nbi),'Copy')) return;
   const nbl=bl.data.map(l=>({...l, id:uuid(), bid_item_id:map[l.bid_item_id]}));
   for(let i=0;i<nbl.length;i+=500){ if(await dbErr(await sb.from('bid_lines').insert(nbl.slice(i,i+500)),'Copy')) return; }
-  S.jobs.unshift({...nj, updated_at:new Date().toISOString()}); renderJobs(); toast(`Copied as ${nextRev}`);
+  S.jobs.unshift({...nj, updated_at:new Date().toISOString()}); renderJobs(); if(arguments.length<2) toast(`Copied as ${nextRev}`);
+  return nj.id;
 }
 
 /* =====================================================================
    ESTIMATE — WORKSPACE
    ===================================================================== */
-async function openJob(id, tab, askImport){
+async function openJob(id, tab, askImport, baseline){
+  await flushTotal();
   const [j,bi]=await Promise.all([ sb.from('jobs').select('*').eq('id',id).single(), sb.from('bid_items').select('*').eq('job_id',id).order('sort') ]);
   if(await dbErr(j,'Load')||await dbErr(bi,'Load')) return;
   const ids=bi.data.map(b=>b.id); let bl={data:[]};
   if(ids.length){ bl=await sb.from('bid_lines').select('*').in('bid_item_id',ids).order('sort'); if(await dbErr(bl,'Load')) return; }
   S.job=j.data; S.job.ops=S.job.ops||[]; S.job.proposal=S.job.proposal||{}; S.bis=bi.data; S.bls=bl.data; S.jobTab=tab||'sheet'; S.biSel=S.bis[0]?.id||null;
   $('#jobsList').style.display='none'; $('#jobWs').style.display='block';
+  if(baseline) await baselineJob();
   await ensureSuperOp();
   await refreshJobFromCatalog(true);
   renderJob();
   if(askImport) openBidImport();
 }
-function closeJob(){ S.job=null; $('#jobWs').style.display='none'; $('#jobsList').style.display='block'; renderJobs(); }
+function closeJob(){ flushTotal(); S.job=null; $('#jobWs').style.display='none'; $('#jobsList').style.display='block'; renderJobs(); }
 const linesOf = biId => S.bls.filter(l=>l.bid_item_id===biId).sort((a,b)=>(a.sort||0)-(b.sort||0));
 const jobOp = id => (S.job.ops||[]).find(o=>o.id===id);
 const opsFor = bi => (bi && bi.status==='ready' && Array.isArray(bi.ops_frozen)) ? bi.ops_frozen : (S.job.ops||[]);
@@ -646,7 +679,7 @@ const superOp = () => (S.job.ops||[]).find(isSuper);
 // Keep unlocked bids in step with the catalog's operations, crews and equipment (ops edited on the bid stay as edited).
 const opSig = o => JSON.stringify([o.name, Number(o.crew), Number(o.hpd), (o.equip||[]).map(e=>[e.equipment_id, e.name, Number(e.qty), Number(e.rate)])]);
 async function refreshJobFromCatalog(quiet){
-  if(!S.job || S.job.locked) return false;
+  if(!S.job || S.job.locked || S.job.catalog_frozen) return false;
   let nOps=0; const ops=(S.job.ops||[]).map(o=>{ if(o.custom) return o; const co=S.ops.find(x=>x.id===o.id); if(!co || !co.active) return o; const sn=snapshotOp(co); if(opSig(sn)!==opSig(o)){ nOps++; return sn; } return o; });
   if(nOps){ S.job.ops=ops; await sb.from('jobs').update({ops}).eq('id',S.job.id); }
   const upd=[]; S.bls.forEach(l=>{ if(!l.item_id) return; const i=itemById(l.item_id); if(!i) return; const b=S.bis.find(x=>x.id===l.bid_item_id); if(!b || itemLocked(b)) return;
@@ -711,9 +744,12 @@ function refreshTotals(){
   const t=jobTotals();
   const el=$('#jTotalV'); if(el){ el.textContent=money(t.amount); $('#jTotalS').textContent=`${num(t.hrs,0)} man-hours · ${S.bis.length} bid items`; }
   const ft=$('#bsFoot'); if(ft) ft.innerHTML=bsFootHtml(t);
-  clearTimeout(totalTimer);
-  totalTimer=setTimeout(async ()=>{ const v=Math.round(t.amount*100)/100; if(Number(S.job.total)!==v){ S.job.total=v; await sb.from('jobs').update({total:v}).eq('id',S.job.id); const lj=S.jobs.find(x=>x.id===S.job.id); if(lj){ lj.total=v; lj.updated_at=new Date().toISOString(); } } },800);
+  clearTimeout(totalTimer); const job=S.job, v=Math.round(t.amount*100)/100;
+  const lj0=S.jobs.find(x=>x.id===job.id); if(lj0) lj0.total=v;
+  totalTimer=setTimeout(()=>saveTotal(job,v),800); S.pendingTotal=[job,v];
 }
+async function saveTotal(job,v){ S.pendingTotal=null; if(Number(job.total)===v) return; job.total=v; await sb.from('jobs').update({total:v}).eq('id',job.id); const lj=S.jobs.find(x=>x.id===job.id); if(lj){ lj.total=v; lj.updated_at=new Date().toISOString(); } }
+async function flushTotal(){ clearTimeout(totalTimer); if(S.pendingTotal){ const [j,v]=S.pendingTotal; await saveTotal(j,v); } }
 const LOCK_STATUSES=['Submitted','Won','Lost'];
 const ITEM_ST={quote:['Waiting on quote','#fff3a3','#6b5200'],verify:['Still verifying','#dbeafe','#1e40af'],ready:['Ready','#dcfce7','#166534'],john:['Need John','#ffedd5','#9a3412']};
 const itemLocked=b=>!!b && b.status==='ready';
@@ -738,7 +774,7 @@ function applyItemLockUI(){
 }
 function lockedMsg(){ toast('This bid is locked. Unlock it or copy it as a new revision to make changes.',true); return false; }
 async function saveJob(patch){
-  if(S.job.locked && Object.keys(patch).some(k=>!['locked','status','total'].includes(k))) return lockedMsg();
+  if(S.job.locked && Object.keys(patch).some(k=>!['locked','status','total','catalog_frozen'].includes(k))) return lockedMsg();
   Object.assign(S.job,patch); const r=await sb.from('jobs').update(patch).eq('id',S.job.id); if(await dbErr(r)) return false;
   const lj=S.jobs.find(x=>x.id===S.job.id); if(lj){ Object.keys(patch).forEach(k=>{ if(k in lj) lj[k]=patch[k]; }); lj.updated_at=new Date().toISOString(); }
   return true;
@@ -767,6 +803,7 @@ function renderJob(){
         <div style="display:flex;gap:6px"><button class="btn sec sm" id="jLock" data-keep="1">${J.locked?'🔓 Unlock':'🔒 Lock'}</button><button class="btn sec sm" id="jImp">Import Bid Items</button><button class="btn sec sm" id="jXls" data-keep="1">Export Bid Sheets (Excel)</button><button class="btn dark sm" id="jPdf" data-keep="1">Proposal PDF</button></div>
       </div>
     </div>
+    <div class="rev-bar">${(()=>{ const g=revsOf(J); const cur=S.jobs.find(x=>x.id===J.id)||J; return `<span class="lbl">Revisions</span>`+(g.length?g:[cur]).map(x=>`<button class="rv ${x.id===J.id?'on':''}" data-rev="${x.id}" data-keep="1" title="${esc(revLabel(x))}${x.locked?' — locked':''}">${esc(revLabel(x))}${x.locked?' 🔒':''}<small class="num">${money0(x.id===J.id?jobTotals().amount:x.total)}</small></button>`).join('')+`<button class="btn sm sec" id="jRev" data-keep="1" title="Copy this whole bid into a new revision">+ Create Revision</button>`; })()}</div>
     <div id="jSync"></div>
     <div class="subtabs" id="jTabs">
       <button data-t="sheet">Bid Sheet</button><button data-t="detail">Item Breakdown</button><button data-t="rates">Rates &amp; Crews</button><button data-t="proposal">Proposal</button><button data-t="reports">Reports</button>
@@ -775,18 +812,35 @@ function renderJob(){
   $('#jBack').onclick=closeJob;
   $('#jName').onchange=e=>{ const v=e.target.value.trim(); if(v) saveJob({name:v}); };
   $('#jobWs .job-meta').addEventListener('change', async e=>{ const k=e.target.dataset.j; if(!k) return; const v=e.target.value.trim()||null; const patch={[k]:v};
-    if(k==='status' && LOCK_STATUSES.includes(v) && !S.job.locked){ patch.locked=true; }
+    if(k==='status' && LOCK_STATUSES.includes(v) && !S.job.locked){ patch.locked=true; patch.catalog_frozen=true; }
     const ok=await saveJob(patch); flash(e.target,ok); if(patch.locked){ toast(`Locked — status is ${v}. Catalog changes won't touch this bid.`); renderJob(); } });
   $('#jLock').onclick=toggleLock;
+  $('#jRev').onclick=()=>createRevision(S.job.id);
+  document.querySelectorAll('[data-rev]').forEach(bt=>bt.onclick=()=>{ if(bt.dataset.rev!==S.job.id) openJob(bt.dataset.rev, S.jobTab); });
   $('#jTabs').onclick=e=>{ const b=e.target.closest('button'); if(!b) return; S.jobTab=b.dataset.t; renderJobBody(); };
   $('#jImp').onclick=openBidImport; $('#jXls').onclick=exportBidSheets; $('#jPdf').onclick=()=>{ S.jobTab='proposal'; renderJobBody(); };
   renderJobBody(); renderSync(); applyLockUI();
 }
 async function toggleLock(){
-  if(S.job.locked){ if(!confirm(`Unlock “${S.job.name}”? It will be editable again and can receive catalog price updates.\n\nTip: to keep the sent version as-is, use the copy button on the Estimates list to make a new revision instead.`)) return;
-    await saveJob({locked:false}); toast('Unlocked'); }
-  else { await saveJob({locked:true}); toast('Locked — catalog changes won\'t touch this bid'); }
+  if(S.job.locked){ if(!confirm(`Unlock “${S.job.name}”? It will be editable again. Nothing in the estimate will change — prices, quantities and crews stay exactly as they are, and catalog changes won't touch it.\n\nTip: to keep the sent version as-is, use the copy button on the Estimates list to make a new revision instead.`)) return;
+    await baselineJob(); await saveJob({locked:false}); renderSync(); toast('Unlocked — nothing in the estimate was changed'); }
+  else { await saveJob({locked:true, catalog_frozen:true}); toast('Locked — catalog changes won\'t touch this bid'); }
   renderJob();
+}
+// When a bid is unlocked, treat today's catalog as already applied so nothing in the estimate changes.
+async function baselineJob(){
+  const ups=[], r6=v=>Math.round(v*1e6)/1e6; const cache={};
+  S.bls.forEach(l=>{ const patch={};
+    if(l.item_id){ const i=itemById(l.item_id); if(i){ if(l.cat_price==null||!near(l.cat_price,i.unit_price)) patch.cat_price=Number(i.unit_price); if(l.cat_labor==null||!near(l.cat_labor,i.labor_hours)) patch.cat_labor=Number(i.labor_hours); if((l.cat_op??null)!==(i.operation_id||null)) patch.cat_op=i.operation_id||null; } }
+    if(l.assembly_id && l.assembly_item_id && asmById(l.assembly_id)){ const parts=cache[l.assembly_id]=cache[l.assembly_id]||expandAsm(l.assembly_id); const p=parts.find(p=>p.row.id===l.assembly_item_id);
+      if(!p) patch.assembly_item_id=null; else { const exp=r6(p.qty*Number(l.asm_mult??1)); if(l.cat_qty==null||!near(l.cat_qty,exp)) patch.cat_qty=exp; } }
+    if(Object.keys(patch).length){ Object.assign(l,patch); ups.push([l.id,patch]); } });
+  for(let i=0;i<ups.length;i+=40) await Promise.all(ups.slice(i,i+40).map(([id,patch])=>sb.from('bid_lines').update(patch).eq('id',id)));
+  for(const b of S.bis){ const ids=new Set([...Object.keys(b.asm_seen||{}), ...linesOf(b.id).map(l=>l.assembly_id).filter(Boolean)]); if(!ids.size) continue;
+    const seen={...(b.asm_seen||{})}; let ch=false; ids.forEach(aid=>{ if(!asmById(aid)) return; const keys=expandAsm(aid).map(p=>p.key); if(JSON.stringify(keys)!==JSON.stringify(seen[aid])){ seen[aid]=keys; ch=true; } });
+    if(ch){ b.asm_seen=seen; await sb.from('bid_items').update({asm_seen:seen}).eq('id',b.id); } }
+  let opCh=false; const ops=(S.job.ops||[]).map(o=>{ if(o.custom) return o; const co=S.ops.find(x=>x.id===o.id); if(co && co.active && opSig(snapshotOp(co))!==opSig(o)){ opCh=true; return {...o, custom:true}; } return o; });
+  if(opCh){ S.job.ops=ops; await sb.from('jobs').update({ops}).eq('id',S.job.id); }
 }
 function applyLockUI(){
   const ws=$('#jobWs'); if(!ws || !S.job) return; const L=!!S.job.locked;
@@ -819,7 +873,7 @@ async function addAsmParts(nk){
 }
 // Item → assembly → bid: bring unlocked bids up to date automatically. Lines changed by hand on the bid are left alone (they show in “Review & update”).
 async function autoSyncLines(){
-  if(!S.job || S.job.locked) return '';
+  if(!S.job || S.job.locked || S.job.catalog_frozen) return '';
   const d=catalogDiffs(); const msg=[];
   const pk=d.price.filter(x=>!x.edited);
   await Promise.all(pk.map(x=>{ const patch={unit_price:x.np, labor_hours:x.nl, cat_price:x.np, cat_labor:x.nl}; Object.assign(x.l,patch); return sb.from('bid_lines').update(patch).eq('id',x.l.id); }));
@@ -842,6 +896,8 @@ async function autoSyncLines(){
 function renderSync(){
   const box=$('#jSync'); if(!box) return;
   if(S.job.locked){ box.innerHTML=`<div class="card panel-h" style="margin-bottom:12px;background:#f3f4f6"><b>🔒 Locked${LOCK_STATUSES.includes(S.job.status)?' — '+esc(S.job.status):''}</b><span class="hint">View only. Catalog price changes will not affect this bid. You can still export Excel and the proposal PDF.</span><span class="spacer"></span><button class="btn sm sec" data-keep="1" id="syUnlock">🔓 Unlock</button></div>`; $('#syUnlock').onclick=toggleLock; return; }
+  if(S.job.catalog_frozen){ box.innerHTML=`<div class="card panel-h" style="margin-bottom:12px;background:#f8fafc"><span class="hint">🧊 Catalog changes don't affect this bid (it was locked or copied as a revision). Prices and quantities only change when you edit them here.</span><span class="spacer"></span><button class="btn sm sec" id="syThaw" title="Let this bid pick up catalog changes again">Turn catalog updates back on</button></div>`;
+    $('#syThaw').onclick=async ()=>{ if(!confirm('Turn catalog updates back on for this bid? From now on, catalog price, labor and assembly changes will update it.')) return; await baselineJob(); await saveJob({catalog_frozen:false}); renderSync(); toast('Catalog updates are on for this bid'); }; return; }
   const d=catalogDiffs(); const n=d.price.length+d.parts.length;
   if(!n){ box.innerHTML=''; return; }
   box.innerHTML=`<div class="card panel-h" style="margin-bottom:12px;background:#fff1e8;border-color:#ffd3b8"><b>Catalog updates available</b><span class="hint">${d.price.length?`${d.price.length} price/labor change${d.price.length>1?'s':''}`:''}${d.price.length&&d.parts.length?' · ':''}${d.parts.length?`${d.parts.length} new assembly part${d.parts.length>1?'s':''}`:''} since these lines were added.</span><span class="spacer"></span><button class="btn sm" id="syReview">Review &amp; update</button></div>`;
@@ -951,7 +1007,7 @@ function renderBd(){
       <label class="chk" title="Adds superintendent hours (1010/1030) based on the project's labor hours"><input type="checkbox" id="bdIsMob" ${b.is_mob?'checked':''}> Mobilization item</label>
       <button class="btn sm" id="bdAsm">+ From Assembly</button><button class="btn sm sec" id="bdCat">+ Catalog Items</button><button class="btn sm sec" id="bdBlank">+ Blank Line</button><button class="btn sm sec" id="bdSaveAsm" title="Save this bid item's lines as a reusable assembly" data-keep>⤓ Save as Assembly</button><button class="btn sm danger" id="bdDelSel" style="display:none">Delete selected</button></div>
     <div style="overflow:auto"><table class="grid" id="blTable"><thead><tr>
-      <th class="c" style="width:34px"><input type="checkbox" id="blAll" title="Select all lines"></th><th style="min-width:220px">Description</th><th style="width:80px">Cost Code</th><th style="width:150px">Operation</th>
+      <th class="c" style="width:52px"><input type="checkbox" id="blAll" title="Select all lines" style="margin-left:14px"></th><th style="min-width:220px">Description</th><th style="width:80px">Cost Code</th><th style="width:150px">Operation</th>
       <th class="r" style="width:90px">Qty</th><th style="width:70px"></th><th class="r" style="width:90px">Total Qty</th><th style="width:60px">Unit</th>
       <th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Material</th><th style="width:170px">Need Quote / From</th><th class="r" style="width:80px">Hrs/Unit</th><th class="r" style="width:80px">Labor Hrs</th>
       <th style="width:100px">Vendor</th><th style="width:56px"></th></tr></thead>
@@ -995,6 +1051,17 @@ function renderBd(){
     const a=$('#blAll'); a.checked=n>0&&n===all; a.indeterminate=n>0&&n<all; document.querySelectorAll('#blTable tbody tr[data-lid]').forEach(tr=>tr.classList.toggle('sel', !!tr.querySelector('[data-sel]:checked'))); };
   $('#blAll').onchange=e=>{ document.querySelectorAll('#blTable tbody [data-sel]').forEach(c=>c.checked=e.target.checked); updSel(); };
   $('#blTable tbody').addEventListener('change', e=>{ if(e.target.dataset.sel) updSel(); });
+  // drag lines to reorder
+  let dragId=null; const tbd=$('#blTable tbody');
+  const clearDrop=()=>tbd.querySelectorAll('.drop-above,.drop-below').forEach(r=>r.classList.remove('drop-above','drop-below'));
+  tbd.addEventListener('dragstart',e=>{ const h=e.target.closest&&e.target.closest('.drag'); if(!h){ e.preventDefault(); return; } const tr=h.closest('tr'); dragId=tr.dataset.lid; tr.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain',dragId); try{ e.dataTransfer.setDragImage(tr,20,18); }catch(_){} });
+  tbd.addEventListener('dragover',e=>{ if(!dragId) return; const tr=e.target.closest('tr[data-lid]'); if(!tr) return; e.preventDefault(); clearDrop(); if(tr.dataset.lid===dragId) return; const r=tr.getBoundingClientRect(); tr.classList.add(e.clientY<r.top+r.height/2?'drop-above':'drop-below'); });
+  tbd.addEventListener('dragend',()=>{ clearDrop(); tbd.querySelectorAll('.dragging').forEach(r=>r.classList.remove('dragging')); dragId=null; });
+  tbd.addEventListener('drop',async e=>{ if(!dragId) return; e.preventDefault(); const tr=e.target.closest('tr[data-lid]'); const below=tr&&tr.classList.contains('drop-below'); const from=dragId; clearDrop(); dragId=null; if(!tr || tr.dataset.lid===from) return renderBd();
+    if(S.job.locked) return lockedMsg(); if(itemLocked(b)) return itemLockedMsg();
+    const order=linesOf(b.id).map(l=>l.id).filter(id=>id!==from); let ix=order.indexOf(tr.dataset.lid); if(below) ix++; order.splice(ix,0,from);
+    const ch=[]; order.forEach((id,i)=>{ const l=S.bls.find(x=>x.id===id); if(l.sort!==i+1){ l.sort=i+1; ch.push(sb.from('bid_lines').update({sort:i+1}).eq('id',id)); } });
+    renderBd(); const res=await Promise.all(ch); if(res.some(r=>r.error)) toast('Could not save the new order',true); });
   $('#bdDelSel').onclick=async ()=>{ const ids=selIds(); if(!ids.length) return; if(!confirm(`Delete ${ids.length} line${ids.length>1?'s':''} from this bid item?`)) return;
     if(S.job.locked) return lockedMsg(); if(itemLocked(b)) return itemLockedMsg();
     const r=await sb.from('bid_lines').delete().in('id',ids); if(await dbErr(r,'Delete')) return;
@@ -1004,7 +1071,7 @@ function renderBd(){
 function blRowHtml(l,b){
   const tq=lineTQ(l,b.qty); const q=safeUrl(l.quote_url); const ci=l.item_id?itemById(l.item_id):null;
   return `<tr data-lid="${l.id}" class="${(ci&&ci.highlight)||l.need_quote?'hl':''}">
-    <td class="c"><input type="checkbox" data-sel="1" title="Select to delete"></td>
+    <td class="c" style="white-space:nowrap"><span class="drag" draggable="true" title="Drag to move this line up or down">⋮⋮</span><input type="checkbox" data-sel="1" title="Select to delete" style="vertical-align:middle"></td>
     <td><input class="cell" data-f="description" value="${esc(l.description)}" title="${esc(l.source?('From: '+l.source):'')}"></td>
     <td><select class="cell mono" data-f="cost_code" title="${esc(l.cost_code?(l.cost_code+' – '+codeName(l.cost_code)):'No cost code')}">${codeOptionsShort(l.cost_code)}</select></td>
     <td><select class="cell" data-f="operation_id" title="${l.operation_id?'':'No operation: labor only, no equipment'}">${opOptions(l.operation_id,'— (labor only)')}</select></td>
